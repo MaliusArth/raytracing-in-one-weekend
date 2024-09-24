@@ -1,6 +1,18 @@
 package main
 
 import "core:fmt"
+import "core:os"
+
+color :: [3]f64
+
+write_color :: proc (dst : os.Handle, pixel_color : color)
+{
+	ir := i32(255.999 * pixel_color.x)
+	ig := i32(255.999 * pixel_color.y)
+	ib := i32(255.999 * pixel_color.z)
+
+	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
+}
 
 main :: proc ()
 {
@@ -20,15 +32,8 @@ main :: proc ()
 		fmt.eprintf("\rScanlines remaining: %v", image_height - j)
 		for i : i32; i < image_width; i+=1
 		{
-			r := f64(i) / f64(image_width-1)
-			g := f64(j) / f64(image_height-1)
-			b := 0.0
-
-			ir := i32(255.999 * r)
-			ig := i32(255.999 * g)
-			ib := i32(255.999 * b)
-
-			fmt.printfln("%v %v %v", ir, ig, ib)
+			pixel_color := color{f64(i) / f64(image_width-1), f64(j) / f64(image_height-1), 0}
+			write_color(os.stdout, pixel_color)
 		}
 	}
 
