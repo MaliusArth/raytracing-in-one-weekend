@@ -17,6 +17,7 @@ main :: proc ()
 
 	for j : i32; j < image_height; j+=1
 	{
+		fmt.eprintf("\rScanlines remaining: %v", image_height - j)
 		for i : i32; i < image_width; i+=1
 		{
 			r := f64(i) / f64(image_width-1)
@@ -30,4 +31,7 @@ main :: proc ()
 			fmt.printfln("%v %v %v", ir, ig, ib)
 		}
 	}
+
+	fmt.eprintln("\rDone.                   ")
+
 }
