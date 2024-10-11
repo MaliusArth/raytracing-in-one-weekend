@@ -46,6 +46,10 @@ set STYLE_PARAMS=-vet -vet-style -vet-semicolon -vet-using-param -vet-cast -vet-
 @REM odin strip-semicolon src/%file_name%.odin -file
 odin build src/%file_name%.odin -file -out=bin/%file_name%.exe -o:none -debug -show-timings -subsystem:console %STYLE_PARAMS%
 
+@REM start rundll32.exe cmdext.dll,MessageBeepStub
+start rundll32 user32.dll,MessageBeep
+@REM call powershell "[console]::beep(500,300)"
+
 @REM || goto :error
 @REM echo -------------------------
 
