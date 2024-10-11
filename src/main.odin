@@ -20,10 +20,34 @@ normalize :: proc(vec: vec3) -> vec3
 	return vec
 }
 
+dot :: proc(a: vec3, b: vec3) -> (result: f64)
+{
+	result = a.x*b.x + a.y*b.y + a.z*b.z
+	return
+}
+
+substract :: proc(a: vec3, b: vec3) -> (result: vec3)
+{
+	result.x = a.x-b.x
+	result.y = a.y-b.y
+	result.z = a.z-b.z
+	return
+}
+
 ray :: struct
 {
 	origin: point3,
 	direction: vec3,
+}
+
+hit_sphere :: proc(center: ^point3, radius: f64, r: ^ray) -> bool
+{
+	o_c: vec3 = substract(center^, r.origin)
+	a := dot(r.direction, r.direction)
+	b := -2.0 * dot(r.direction, o_c)
+	c := dot(o_c, o_c) - radius*radius
+	discriminant := b*b - 4*a*c
+	return discriminant >= 0
 }
 
 write_color :: proc (dst: os.Handle, pixel_color: color)
@@ -90,6 +114,13 @@ main :: proc ()
 			r := ray{camera_center, ray_direction}
 
 			pixel_color := ray_color(&r)
+
+			sphere_center := point3{0,0,-1}
+			sphere_radius :: 0.5
+			if hit_sphere(center=&sphere_center, radius=sphere_radius, r=&r)
+			{
+				pixel_color = color{1, 0, 0}
+			}
 
 			write_color(os.stdout, pixel_color)
 		}
