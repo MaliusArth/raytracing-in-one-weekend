@@ -18,23 +18,17 @@
                 "panel": "shared",
                 "showReuseMessage": false,
                 "clear": true
-            }
-        },
-        {
-            "label": "build",
-            "type": "shell",
-            "group": "build",
-            "command": "build.bat ${fileBasename}",
-            "options": {
-                "cwd": "${workspaceFolder}"
             },
-            "presentation": {
-                "echo": true,
-                "reveal": "silent",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": false,
-                "clear": true
+            "problemMatcher": {
+                "fileLocation": ["absolute"],
+                "pattern": {
+                    "regexp": "^(.+\\.odin)\\(([0-9]+):([0-9]+)\\)\\s*(Error|Warning):\\s*(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
             }
         },
         {
