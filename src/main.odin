@@ -40,14 +40,16 @@ ray :: struct
 	direction: vec3,
 }
 
-hit_sphere :: proc(center: ^point3, radius: f64, r: ^ray) -> bool
+hit_sphere :: proc(center: ^point3, radius: f64, r: ^ray) -> f64
 {
 	o_c: vec3 = substract(center^, r.origin)
 	a := dot(r.direction, r.direction)
 	b := -2.0 * dot(r.direction, o_c)
 	c := dot(o_c, o_c) - radius*radius
 	discriminant := b*b - 4*a*c
-	return discriminant >= 0
+	if discriminant < 0 { return -1 }
+
+	return (-b - math.sqrt(discriminant)) / (2.0*a)
 }
 
 write_color :: proc (dst: os.Handle, pixel_color: color)
@@ -117,9 +119,12 @@ main :: proc ()
 
 			sphere_center := point3{0,0,-1}
 			sphere_radius :: 0.5
-			if hit_sphere(center=&sphere_center, radius=sphere_radius, r=&r)
+			t := hit_sphere(&sphere_center, sphere_radius, &r)
+			if t > 0
 			{
-				pixel_color = color{1, 0, 0}
+				hit_point := (r.origin + t * r.direction)
+				normal := normalize(hit_point - sphere_center)
+				pixel_color = 0.5*color{normal.x+1, normal.y+1, normal.z+1}
 			}
 
 			write_color(os.stdout, pixel_color)
