@@ -8,22 +8,24 @@ color :: distinct [3]f64
 vec3 :: distinct [3]f64
 point3 :: vec3
 
+dot :: proc(a: vec3, b: vec3) -> f64
+{
+	return a.x*b.x + a.y*b.y + a.z*b.z
+}
+
+magnitude_squared :: proc(vec: vec3) -> f64
+{
+	return dot(vec, vec)
+}
+
 magnitude :: proc(vec: vec3) -> f64
 {
-	return math.sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z)
+	return math.sqrt(magnitude_squared(vec))
 }
 
 normalize :: proc(vec: vec3) -> vec3
 {
-	vec := vec // explicit mutation via shadowing
-	vec = vec / magnitude(vec)
-	return vec
-}
-
-dot :: proc(a: vec3, b: vec3) -> (result: f64)
-{
-	result = a.x*b.x + a.y*b.y + a.z*b.z
-	return
+	return vec / magnitude(vec)
 }
 
 substract :: proc(a: vec3, b: vec3) -> (result: vec3)
@@ -43,13 +45,13 @@ ray :: struct
 hit_sphere :: proc(center: ^point3, radius: f64, r: ^ray) -> f64
 {
 	o_c: vec3 = substract(center^, r.origin)
-	a := dot(r.direction, r.direction)
-	b := -2.0 * dot(r.direction, o_c)
-	c := dot(o_c, o_c) - radius*radius
-	discriminant := b*b - 4*a*c
+	a := magnitude_squared(r.direction)
+	h := dot(r.direction, o_c)
+	c := magnitude_squared(o_c) - radius*radius
+	discriminant := h*h - a*c
 	if discriminant < 0 { return -1 }
 
-	return (-b - math.sqrt(discriminant)) / (2.0*a)
+	return (h - math.sqrt(discriminant)) / a
 }
 
 write_color :: proc (dst: os.Handle, pixel_color: color)
