@@ -38,16 +38,16 @@ substract :: proc(a: vec3, b: vec3) -> (result: vec3)
 
 ray :: struct
 {
-	origin: point3,
-	direction: vec3,
+	origin : point3,
+	direction : vec3,
 }
 
 hit_record :: struct
 {
-	p: point3,
-	normal: vec3,
-	t: f64,
-	front_face: b8,
+	p : point3,
+	normal : vec3,
+	t : f64,
+	front_face : b8,
 }
 
 hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) -> (value: hit_record, ok: bool) #optional_ok
@@ -101,8 +101,8 @@ ray_color :: proc(r: ^ray) -> color
 
 sphere :: struct
 {
-center: vec3,
-radius: f64,
+	center : vec3,
+	radius : f64,
 }
 
 main :: proc ()
@@ -141,11 +141,11 @@ main :: proc ()
 	fmt.println("255")
 
 	spheres :: []sphere{
-		{center={0,0,-1}, radius=0.5},
-		{center={0.2,0.5,-1}, radius=0.2},
-		{center={0.3,-0.1,-0.7}, radius=0.2},
-		{center={-0.5,-0.25,-0.5}, radius=0.2},
-		{center={0.65,0.6,-0.8}, radius=0.3},
+		{center={0, 0, -1}, radius=0.5},
+		{center={0.2, 0.5, -1}, radius=0.2},
+		{center={0.3, -0.1, -0.7}, radius=0.2},
+		{center={-0.5, -0.25, -0.5}, radius=0.2},
+		{center={0.65, 0.6, -0.8}, radius=0.3},
 	}
 
 	for j in 0..<image_height
