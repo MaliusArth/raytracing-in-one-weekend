@@ -99,6 +99,12 @@ ray_color :: proc(r: ^ray) -> color
 	return (1 - t) * a + t * b
 }
 
+sphere :: struct
+{
+center: vec3,
+radius: f64,
+}
+
 main :: proc ()
 {
 	// Image
@@ -134,6 +140,14 @@ main :: proc ()
 	fmt.printfln("%v %v", image_width, image_height)
 	fmt.println("255")
 
+	spheres :: []sphere{
+		{center={0,0,-1}, radius=0.5},
+		{center={0.2,0.5,-1}, radius=0.2},
+		{center={0.3,-0.1,-0.7}, radius=0.2},
+		{center={-0.5,-0.25,-0.5}, radius=0.2},
+		{center={0.65,0.6,-0.8}, radius=0.3},
+	}
+
 	for j in 0..<image_height
 	{
 		fmt.eprintf("\rScanlines remaining: %v", image_height - j)
@@ -147,13 +161,18 @@ main :: proc ()
 			r.direction = normalize(r.direction)
 			pixel_color := ray_color(&r)
 
-			sphere_center := point3{0,0,-1}
-			sphere_radius :: 0.5
-			if record, ok := hit_sphere_ranged(&sphere_center, sphere_radius, &r, {0, 1}); ok
+			closest_t := 1.0
+			for &sphere in spheres
 			{
-				pixel_color = 0.5*color(record.normal+1)
+				if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok
+				{
+					if record.t < closest_t
+					{
+						closest_t = record.t
+						pixel_color = 0.5*color(record.normal+1)
+					}
+				}
 			}
-
 			write_color(os.stdout, pixel_color)
 		}
 	}
