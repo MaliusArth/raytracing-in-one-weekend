@@ -42,16 +42,37 @@ ray :: struct
 	direction: vec3,
 }
 
-hit_sphere :: proc(center: ^point3, radius: f64, r: ^ray) -> f64
+hit_record :: struct
 {
-	o_c: vec3 = substract(center^, r.origin)
+	p: point3,
+	normal: vec3,
+	t: f64,
+}
+
+hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) -> (value: hit_record, ok: bool) #optional_ok
+{
+	o_c := substract(center^, r.origin)
 	a := magnitude_squared(r.direction)
 	h := dot(r.direction, o_c)
 	c := magnitude_squared(o_c) - radius*radius
 	discriminant := h*h - a*c
-	if discriminant < 0 { return -1 }
+	if discriminant < 0 do return
 
-	return (h - math.sqrt(discriminant)) / a
+	sqrtd := math.sqrt(discriminant)
+
+	// Find the nearest root that lies in the acceptable range
+	root := (h - sqrtd) / a
+	if root <= t_range.min || t_range.max <= root
+	{
+		root = (h + sqrtd) / a
+		if root <= t_range.min || t_range.max <= root do return
+	}
+
+	record : hit_record
+	record.t = root
+	record.p = r.origin + root*r.direction
+	record.normal=(record.p - center^) / radius
+	return record, true
 }
 
 write_color :: proc (dst: os.Handle, pixel_color: color)
@@ -114,19 +135,17 @@ main :: proc ()
 		{
 			pixel_center := pixel00_loc + (f64(i) * pixel_delta_u) + (f64(j) * pixel_delta_v)
 			ray_direction := pixel_center - camera_center
-			ray_direction = normalize(ray_direction)
+			// ray_direction = normalize(ray_direction)
 			r := ray{camera_center, ray_direction}
 
+			r.direction = normalize(r.direction)
 			pixel_color := ray_color(&r)
 
 			sphere_center := point3{0,0,-1}
 			sphere_radius :: 0.5
-			t := hit_sphere(&sphere_center, sphere_radius, &r)
-			if t > 0
+			if record, ok := hit_sphere_ranged(&sphere_center, sphere_radius, &r, {0, 1}); ok
 			{
-				hit_point := (r.origin + t * r.direction)
-				normal := normalize(hit_point - sphere_center)
-				pixel_color = 0.5*color{normal.x+1, normal.y+1, normal.z+1}
+				pixel_color = 0.5*color(record.normal+1)
 			}
 
 			write_color(os.stdout, pixel_color)
