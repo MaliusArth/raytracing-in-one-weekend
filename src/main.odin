@@ -142,10 +142,11 @@ main :: proc ()
 
 	spheres :: []sphere{
 		{center={0, 0, -1}, radius=0.5},
-		{center={0.2, 0.5, -1}, radius=0.2},
-		{center={0.3, -0.1, -0.7}, radius=0.2},
-		{center={-0.5, -0.25, -0.5}, radius=0.2},
-		{center={0.65, 0.6, -0.8}, radius=0.3},
+		// {center={0.2, 0.5, -1}, radius=0.2},
+		// {center={0.3, -0.1, -0.7}, radius=0.2},
+		// {center={-0.5, -0.25, -0.5}, radius=0.2},
+		// {center={0.65, 0.6, -0.8}, radius=0.3},
+		{center={0, -100.5, -1}, radius=100},
 	}
 
 	for j in 0..<image_height
@@ -159,9 +160,10 @@ main :: proc ()
 			r := ray{camera_center, ray_direction}
 
 			r.direction = normalize(r.direction)
-			pixel_color := ray_color(&r)
 
-			closest_t := 1.0
+			closest_t := math.inf_f64(0)
+			pixel_color := ray_color(&r) // NOTE(viktor): background color (gradient)
+
 			for &sphere in spheres
 			{
 				if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok
