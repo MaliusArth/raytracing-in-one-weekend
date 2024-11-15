@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:math"
+import "core:math/rand"
 
 vec2 :: distinct [2]f64
 vec2i :: distinct [2]i64
@@ -77,9 +78,11 @@ hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct
 
 write_color :: proc (dst: os.Handle, pixel_color: color)
 {
-	ir := i32(255.999 * pixel_color.x)
-	ig := i32(255.999 * pixel_color.y)
-	ib := i32(255.999 * pixel_color.z)
+	// Translate the [0,1] component values to the byte range [0,255].
+	intensity :: vec2{0.000, 0.999}
+	ir := i32(256 * clamp(pixel_color.r, intensity.x, intensity.y))
+	ig := i32(256 * clamp(pixel_color.g, intensity.x, intensity.y))
+	ib := i32(256 * clamp(pixel_color.b, intensity.x, intensity.y))
 
 	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
 }
@@ -102,20 +105,22 @@ sphere :: struct
 camera :: struct
 {
 	position : point3,
-
 	focal_length : f64,
 	aspect_ratio : f64,
 	image_size : vec2i,
 	viewport : vec2,
+	samples_per_pixel : i64,
 }
 
-create_camera :: proc(
+camera_init :: proc(
+	camera : ^camera,
 	position := point3{},
 	focal_length : f64 = 1.0,
 	target_aspect_ratio : f64 = 1.0,
 	image_width : i64 = 100,
 	// viewport : vec2,
-) -> (camera : camera)
+	samples_per_pixel : i64 = 10,
+)
 {
 	// Image
 	camera.position = position
@@ -133,58 +138,82 @@ create_camera :: proc(
 	viewport_height := 2.0
 	camera.viewport = { viewport_height * camera.aspect_ratio, viewport_height }
 
-	return
+	camera.samples_per_pixel = samples_per_pixel
+}
+
+sample_square :: proc() -> vec3
+{
+	// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
+	return vec3{rand.float64_range(-0.5, 0.5), rand.float64_range(-0.5, 0.5), 0}
 }
 
 render :: proc(camera : camera, spheres : []sphere)
 {
-	// 1280 × 720
-	// 16/9 = 1.778
-
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
-	pixel_deltas : vec3 = {
-		camera.viewport.x / f64(camera.image_size.x), // 3.556/1280=0.002778
-		-camera.viewport.y / f64(camera.image_size.y), // -2/720=-0.002778
+	pixel_deltas : vec3 =
+	{
+		 camera.viewport.x / f64(camera.image_size.x),
+		-camera.viewport.y / f64(camera.image_size.y),
 		0,
 	}
 
 	// Calculate the location of the top left pixel.
-	// {0, 0, -1} - {1.778, 0, 0} - {0, -1, 0} -> {-1.778, -1, -1}
-	// NOTE(viktor): this is used to calculate the ray_direction which substracts the camera.position away again so we might as well leave it out altogether
+	/*
+	  NOTE(viktor): this is used to calculate the ray_direction which substracts the camera.position away again
+	  so we might as well leave it out altogether
+	*/
 	viewport_top_left := /* camera.position */ - vec3{camera.viewport.x*0.5, -camera.viewport.y*0.5, camera.focal_length}
 	pixel00_center_in_3d := viewport_top_left + 0.5 * pixel_deltas
 
 	fmt.printfln("P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
-
+	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
 	for j in 0..<camera.image_size.y
 	{
-		fmt.eprintf("\rScanlines remaining: %v", camera.image_size.y - j)
+		fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
 		for i in 0..<camera.image_size.x
 		{
-			pixel_center := pixel00_center_in_3d + pixel_deltas * vec3{f64(i), f64(j), 0}
-			ray_direction := pixel_center /* - camera.position */
-			// ray_direction = normalize(ray_direction)
-			r := ray{camera.position, ray_direction}
-
-			closest_t := math.inf_f64(0)
-			// NOTE(viktor): only needs to be normalized for the background gradient
-			r.direction = normalize(r.direction)
-			pixel_color := ray_color(&r) // NOTE(viktor): background color (gradient)
-
-			for &sphere in spheres
+			pixel_color : color
+			for _ in 0..<camera.samples_per_pixel
 			{
-				if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok
+				// get ray
+
+				offset := sample_square()
+				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
+				ray_direction := pixel_sample /* - camera.position */
+				r := ray{camera.position, ray_direction}
+
+				// ray_color
+
+				closest_t := math.inf_f64(0)
+				rec : hit_record
+				for &sphere in spheres
 				{
-					if record.t < closest_t
+					if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok
 					{
-						closest_t = record.t
-						pixel_color = 0.5*color(record.normal+1)
+						if record.t < closest_t
+						{
+							closest_t = record.t
+							rec = record
+						}
 					}
 				}
+
+				sample_color : color
+				if closest_t < math.inf_f64(0)
+				{
+					sample_color = 0.5 * color(rec.normal + 1)
+				}
+				else
+				{
+					// NOTE(viktor): only needs to be normalized for the background gradient
+					r.direction = normalize(r.direction)
+					sample_color = ray_color(&r) // NOTE(viktor): background color (gradient)
+				}
+				pixel_color += sample_color
 			}
-			write_color(os.stdout, pixel_color)
+			write_color(os.stdout, pixel_samples_scale * pixel_color)
 		}
 	}
 
@@ -193,11 +222,13 @@ render :: proc(camera : camera, spheres : []sphere)
 
 main :: proc ()
 {
-	camera := create_camera(target_aspect_ratio=16.0/9.0, image_width=400)
+	rand.reset(seed=1)
+
+	camera : camera
+	camera_init(&camera, target_aspect_ratio=16.0/9.0, image_width=400, samples_per_pixel=100)
 
 	// Scene
-	spheres :: []sphere{
-		{center={0, 0, -1}, radius=0.5},
+	spheres :: []sphere{ {center={0, 0, -1}, radius=0.5},
 		// {center={0.2, 0.5, -1}, radius=0.2},
 		// {center={0.3, -0.1, -0.7}, radius=0.2},
 		// {center={-0.5, -0.25, -0.5}, radius=0.2},
@@ -205,6 +236,11 @@ main :: proc ()
 		{center={0, -100.5, -1}, radius=100},
 	}
 
+	// diff : time.Duration
+	// {
+	// 	time.SCOPED_TICK_DURATION(&diff)
 	render(camera, spheres)
+	// }
 
+	// fmt.eprintfln("render took %v", diff)
 }
