@@ -11,42 +11,38 @@ vec3 :: distinct [3]f64
 color :: vec3
 point3 :: vec3
 
-dot :: proc(a: vec3, b: vec3) -> f64
-{
+dot :: proc(a: vec3, b: vec3) -> f64 {
 	return a.x*b.x + a.y*b.y + a.z*b.z
 }
 
-magnitude_squared :: proc(vec: vec3) -> f64
-{
+magnitude_squared :: proc(vec: vec3) -> f64 {
 	return dot(vec, vec)
 }
 
-magnitude :: proc(vec: vec3) -> f64
-{
+magnitude :: proc(vec: vec3) -> f64 {
 	return math.sqrt(magnitude_squared(vec))
 }
 
-normalize :: proc(vec: vec3) -> vec3
-{
+normalize :: proc(vec: vec3) -> vec3 {
 	return vec / magnitude(vec)
 }
 
-ray :: struct
-{
+ray :: struct {
 	origin : point3,
 	direction : vec3,
 }
 
-hit_record :: struct
-{
+hit_record :: struct {
 	p : point3,
 	normal : vec3,
 	t : f64,
 	front_face : b8,
 }
 
-hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) -> (value: hit_record, ok: bool) #optional_ok
-{
+hit_sphere_ranged :: proc(
+	center: ^point3, radius: f64,
+	r: ^ray, t_range: struct{min, max: f64},
+) -> (value: hit_record, ok: bool) #optional_ok {
 	o_c := center^ - r.origin
 	a := magnitude_squared(r.direction)
 	h := dot(r.direction, o_c)
@@ -58,8 +54,7 @@ hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct
 
 	// Find the nearest root that lies in the acceptable range
 	root := (h - sqrtd) / a
-	if root < t_range.min || t_range.max < root
-	{
+	if root < t_range.min || t_range.max < root {
 		root = (h + sqrtd) / a
 		if root < t_range.min || t_range.max < root do return
 	}
@@ -76,8 +71,7 @@ hit_sphere_ranged :: proc(center: ^point3, radius: f64, r: ^ray, t_range: struct
 	return record, true
 }
 
-write_color :: proc (dst: os.Handle, pixel_color: color)
-{
+write_color :: proc (dst: os.Handle, pixel_color: color) {
 	// Translate the [0,1] component values to the byte range [0,255].
 	intensity :: vec2{0.000, 0.999}
 	ir := i32(256 * clamp(pixel_color.r, intensity.x, intensity.y))
@@ -87,8 +81,7 @@ write_color :: proc (dst: os.Handle, pixel_color: color)
 	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
 }
 
-ray_color :: proc(r: ^ray) -> color
-{
+ray_color :: proc(r: ^ray) -> color {
 	// linear gradient between a and b
 	a := color{1.0, 1.0, 1.0}
 	b := color{0.5, 0.7, 1.0}
@@ -96,14 +89,12 @@ ray_color :: proc(r: ^ray) -> color
 	return (1 - t) * a + t * b
 }
 
-sphere :: struct
-{
+sphere :: struct {
 	center : vec3,
 	radius : f64,
 }
 
-camera :: struct
-{
+camera :: struct {
 	position : point3,
 	focal_length : f64,
 	aspect_ratio : f64,
@@ -120,8 +111,7 @@ camera_init :: proc(
 	image_width : i64 = 100,
 	// viewport : vec2,
 	samples_per_pixel : i64 = 10,
-)
-{
+) {
 	// Image
 	camera.position = position
 
@@ -141,14 +131,12 @@ camera_init :: proc(
 	camera.samples_per_pixel = samples_per_pixel
 }
 
-sample_square :: proc() -> vec3
-{
+sample_square :: proc() -> vec3 {
 	// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
 	return vec3{rand.float64_range(-0.5, 0.5), rand.float64_range(-0.5, 0.5), 0}
 }
 
-render :: proc(camera : camera, spheres : []sphere)
-{
+render :: proc(camera : camera, spheres : []sphere) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -169,14 +157,11 @@ render :: proc(camera : camera, spheres : []sphere)
 
 	fmt.printfln("P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
 	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
-	for j in 0..<camera.image_size.y
-	{
+	for j in 0..<camera.image_size.y {
 		fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
-		for i in 0..<camera.image_size.x
-		{
+		for i in 0..<camera.image_size.x {
 			pixel_color : color
-			for _ in 0..<camera.samples_per_pixel
-			{
+			for _ in 0..<camera.samples_per_pixel {
 				// get ray
 
 				offset := sample_square()
@@ -188,12 +173,9 @@ render :: proc(camera : camera, spheres : []sphere)
 
 				closest_t := math.inf_f64(0)
 				rec : hit_record
-				for &sphere in spheres
-				{
-					if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok
-					{
-						if record.t < closest_t
-						{
+				for &sphere in spheres {
+					if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok {
+						if record.t < closest_t {
 							closest_t = record.t
 							rec = record
 						}
@@ -201,12 +183,9 @@ render :: proc(camera : camera, spheres : []sphere)
 				}
 
 				sample_color : color
-				if closest_t < math.inf_f64(0)
-				{
+				if closest_t < math.inf_f64(0) {
 					sample_color = 0.5 * color(rec.normal + 1)
-				}
-				else
-				{
+				} else {
 					// NOTE(viktor): only needs to be normalized for the background gradient
 					r.direction = normalize(r.direction)
 					sample_color = ray_color(&r) // NOTE(viktor): background color (gradient)
@@ -220,8 +199,7 @@ render :: proc(camera : camera, spheres : []sphere)
 	fmt.eprintln("\rDone.                   ")
 }
 
-main :: proc ()
-{
+main :: proc () {
 	rand.reset(seed=1)
 
 	camera : camera

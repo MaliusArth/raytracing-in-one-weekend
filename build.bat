@@ -59,7 +59,8 @@ set "out_dir=bin"
 :   like -vet-style -vet-semicolon
 :   + Errs when the attached-brace style in not adhered to (also known as 1TBS).
 :   + Errs when 'case' labels are not in the same column as the associated 'switch' token.
-set STYLE_PARAMS=-vet -vet-style -vet-semicolon -vet-using-param -vet-cast -vet-tabs
+: -vet-style -vet-semicolon
+set STYLE_PARAMS=-vet -strict-style -vet-using-param -vet-cast -vet-tabs
 
 : TODO: -sanitize:address
 
