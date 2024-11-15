@@ -4,10 +4,55 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "build file",
+            "type": "shell",
+            "group": "build",
+            "command": "build ${relativeFile} -file",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true
+            },
+            "problemMatcher": {
+                "fileLocation": ["absolute"],
+                "pattern": {
+                    "regexp": "^(.+\\.odin)\\(([0-9]+):([0-9]+)\\)\\s*(Error|Warning):\\s*(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            }
+        },
+        {
+            "label": "debug file",
+            "type": "shell",
+            "group": "none",
+            "command": "debug ${relativeFile} -file",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true
+            },
+        },
+        {
             "label": "build",
             "type": "shell",
             "group": "build",
-            "command": "build.bat ${fileBasename}",
+            "command": "build ${workspaceFolderBasename}",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -15,7 +60,7 @@
                 "echo": true,
                 "reveal": "silent",
                 "focus": false,
-                "panel": "shared",
+                "panel": "dedicated",
                 "showReuseMessage": false,
                 "clear": true
             },
@@ -35,13 +80,49 @@
             "label": "debug",
             "type": "shell",
             "group": "none",
-            "command": "debug.bat ${fileBasename}",
+            "command": "debug ${workspaceFolderBasename}",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
-            "args": [
-                "remedybg.exe"
-            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true
+            },
+        },
+        {
+            "label": "run",
+            "type": "shell",
+            "group": "none",
+            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true
+            },
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "group": "test",
+            "command": "build ${workspaceFolderBasename} -test",
+            // "options": {
+            //     "cwd": "${workspaceFolder}"
+            // },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true
+            },
         },
     ]
 }
