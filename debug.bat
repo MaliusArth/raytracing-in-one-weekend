@@ -1,4 +1,8 @@
 @echo off
+@REM TODO: update to properly support package folders
+
+echo %~0 %*
+
 @REM setlocal enabledelayedexpansion
 if "%1" == "" (
     echo "you forgot to pass a source file"
@@ -10,9 +14,9 @@ set "project_path=%~dp0"
 
 @REM tasklist /fi "imagename eq raddbg.exe"
 
-for /f %%i in ('qprocess "remedybg.exe" ^| find /i /c "remedybg.exe"') do set "runningProcesses=%%i"
-echo running debugger processes: %runningProcesses%
-echo project path: %project_path%
+for /f %%i in ('qprocess "remedybg.exe" ^2^>nul ^| find /i /c "remedybg.exe"') do set "runningProcesses=%%i"
+@REM echo running debugger processes: %runningProcesses%
+@REM echo project path: %project_path%
 if "%runningProcesses%"=="0" (
     start /max remedybg "%project_path%bin\%file_name%.exe"
 ) else (
@@ -28,7 +32,7 @@ if "%runningProcesses%"=="0" (
 @REM timeout /t 1
 @REM start /wait remedybg bring-debugger-to-foreground
 remedybg stop-debugging
-remedybg open-file "%project_path%src\%file_name%.odin"
+remedybg open-file "%project_path%\%file_name%.odin"
 remedybg add-breakpoint-at-function "main.main"
 remedybg start-debugging
 @REM remedybg remove-breakpoint-at-function "main.main"
