@@ -36,7 +36,7 @@ hit_record :: struct {
 	p : point3,
 	normal : vec3,
 	t : f64,
-	front_face : b8,
+	// front_face : b8,
 }
 
 hit_sphere_ranged :: proc(
@@ -63,10 +63,10 @@ hit_sphere_ranged :: proc(
 	record.t = root
 	record.p = r.origin + root*r.direction
 	record.normal = (record.p - center^) / radius
-	record.front_face = dot(r.direction, record.normal) < 0
+	/* record. */front_face := dot(r.direction, record.normal) < 0
 
 	// adjust normal to ray being inside/outside the sphere
-	record.normal = record.front_face ? record.normal : -record.normal
+	record.normal = /* record. */front_face ? record.normal : -record.normal
 
 	return record, true
 }
