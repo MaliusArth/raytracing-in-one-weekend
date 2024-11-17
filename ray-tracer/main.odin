@@ -149,7 +149,10 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 			output_color = color{0,0,0}
 		} else {
 			// Simple diffuse material
-			reflection := random_point_on_hemisphere(closest_record.normal)
+			// reflection := random_point_on_hemisphere(closest_record.normal)
+
+			// Lambertian reflection
+			reflection := closest_record.normal + random_unit_vector()
 
 			reflected_ray := ray{closest_record.p, reflection}
 			output_color = 0.5 * ray_color(&reflected_ray, bounces-1, spheres)
