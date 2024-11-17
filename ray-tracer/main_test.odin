@@ -35,7 +35,7 @@ render_unoptimized :: proc(camera : camera, spheres : []sphere) {
 			for _ in 0..<camera.samples_per_pixel {
 				// get ray
 
-				offset := sample_square()
+				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
 				ray_direction := pixel_sample /* - camera.position */
 				r := ray{camera.position, ray_direction}
@@ -44,7 +44,7 @@ render_unoptimized :: proc(camera : camera, spheres : []sphere) {
 
 				// NOTE(viktor): only needs to be normalized for the background gradient
 				r.direction = normalize(r.direction)
-				sample_color := ray_color(&r) // NOTE(viktor): background color (gradient)
+				sample_color := background_color(&r) // NOTE(viktor): background color (gradient)
 				closest_t := math.inf_f64(0)
 				for &sphere in spheres {
 					if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok {
@@ -90,7 +90,7 @@ render_normalize_conditionally :: proc(camera : camera, spheres : []sphere) {
 			for _ in 0..<camera.samples_per_pixel {
 				// get ray
 
-				offset := sample_square()
+				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
 				ray_direction := pixel_sample /* - camera.position */
 				r := ray{camera.position, ray_direction}
@@ -115,7 +115,7 @@ render_normalize_conditionally :: proc(camera : camera, spheres : []sphere) {
 				else {
 					// NOTE(viktor): only needs to be normalized for the background gradient
 					r.direction = normalize(r.direction)
-					sample_color = ray_color(&r) // NOTE(viktor): background color (gradient)
+					sample_color = background_color(&r) // NOTE(viktor): background color (gradient)
 				}
 				pixel_color += sample_color
 			}
@@ -153,7 +153,7 @@ render_set_color_conditionally :: proc(camera : camera, spheres : []sphere) {
 			for _ in 0..<camera.samples_per_pixel {
 				// get ray
 
-				offset := sample_square()
+				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
 				ray_direction := pixel_sample /* - camera.position */
 				r := ray{camera.position, ray_direction}
@@ -162,7 +162,7 @@ render_set_color_conditionally :: proc(camera : camera, spheres : []sphere) {
 
 				// NOTE(viktor): only needs to be normalized for the background gradient
 				r.direction = normalize(r.direction)
-				sample_color := ray_color(&r) // NOTE(viktor): background color (gradient)
+				sample_color := background_color(&r) // NOTE(viktor): background color (gradient)
 				closest_t := math.inf_f64(0)
 				rec : hit_record
 				for &sphere in spheres {

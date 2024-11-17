@@ -5,6 +5,8 @@ import "core:os"
 import "core:math"
 import "core:math/rand"
 
+/// vec
+
 vec2 :: distinct [2]f64
 vec2i :: distinct [2]i64
 vec3 :: distinct [3]f64
@@ -26,6 +28,44 @@ magnitude :: proc(vec: vec3) -> f64 {
 normalize :: proc(vec: vec3) -> vec3 {
 	return vec / magnitude(vec)
 }
+
+/// random
+
+
+random_vec3 :: proc() -> vec3 {
+	return {rand.float64(), rand.float64(), rand.float64()}
+}
+
+random_vec3_range :: proc(min, max : f64) -> vec3 {
+	return {rand.float64_range(min, max), rand.float64_range(min, max), rand.float64_range(min, max)}
+}
+
+// Returns the vector to a random point in the [min,min]-[max,max] square.
+random_vec2_range :: proc(min, max : f64) -> vec3 {
+	return {rand.float64_range(min, max), rand.float64_range(min, max), 0}
+}
+
+random_unit_vector :: proc() -> vec3 {
+	// rejection sampling to ensure normal distribution
+	for {
+		p := random_vec3_range(-1, 1 + math.F64_EPSILON) // excl. max
+		length_squared := magnitude_squared(p)
+		if 0 < length_squared && length_squared <= 1 {
+			return p / math.sqrt(length_squared)
+		}
+	}
+}
+
+random_point_on_hemisphere :: proc(normal : vec3) -> vec3 {
+	on_unit_sphere := random_unit_vector()
+	if dot(on_unit_sphere, normal) > 0.0 { // In the same hemisphere as the normal
+		return on_unit_sphere
+	} else {
+		return -on_unit_sphere
+	}
+}
+
+/// raycast
 
 ray :: struct {
 	origin : point3,
@@ -81,12 +121,44 @@ write_color :: proc (dst: os.Handle, pixel_color: color) {
 	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
 }
 
-ray_color :: proc(r: ^ray) -> color {
+background_color :: proc(r: ^ray) -> color {
 	// linear gradient between a and b
 	a := color{1.0, 1.0, 1.0}
 	b := color{0.5, 0.7, 1.0}
 	t := 0.5 * (r.direction.y + 1.0)
 	return (1 - t) * a + t * b
+}
+
+ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
+	// < 0 NOT <= 0 or do it in the if below
+	// if bounces < 0 do return color{0,0,0}
+
+	closest_record := hit_record{t=math.F64_MAX}
+	for &sphere in spheres {
+		if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {0, closest_record.t}); ok {
+			if record.t < closest_record.t {
+				closest_record = record
+			}
+		}
+	}
+
+	output_color : color
+	if closest_record.t < math.F64_MAX {
+		if bounces <= 0 { // don't recurse
+			output_color = color{0,0,0}
+		} else {
+			// Simple diffuse material
+			reflection := random_point_on_hemisphere(closest_record.normal)
+
+			reflected_ray := ray{closest_record.p, reflection}
+			output_color = 0.5 * ray_color(&reflected_ray, bounces-1, spheres)
+		}
+	} else {
+		// NOTE(viktor): only needs to be normalized for the background gradient
+		r.direction = normalize(r.direction)
+		output_color = background_color(r)
+	}
+	return output_color
 }
 
 sphere :: struct {
@@ -101,6 +173,7 @@ camera :: struct {
 	image_size : vec2i,
 	viewport : vec2,
 	samples_per_pixel : i64,
+	max_ray_bounces : i64,
 }
 
 camera_init :: proc(
@@ -111,6 +184,7 @@ camera_init :: proc(
 	image_width : i64 = 100,
 	// viewport : vec2,
 	samples_per_pixel : i64 = 10,
+	max_ray_bounces : i64 = 10,
 ) {
 	// Image
 	camera.position = position
@@ -126,14 +200,10 @@ camera_init :: proc(
 
 	// TODO(viktor): why is this hardcoded and why height?
 	viewport_height := 2.0
-	camera.viewport = { viewport_height * camera.aspect_ratio, viewport_height }
+	camera.viewport = {viewport_height * camera.aspect_ratio, viewport_height}
 
 	camera.samples_per_pixel = samples_per_pixel
-}
-
-sample_square :: proc() -> vec3 {
-	// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
-	return vec3{rand.float64_range(-0.5, 0.5), rand.float64_range(-0.5, 0.5), 0}
+	camera.max_ray_bounces = max_ray_bounces
 }
 
 render :: proc(camera : camera, spheres : []sphere) {
@@ -164,33 +234,12 @@ render :: proc(camera : camera, spheres : []sphere) {
 			for _ in 0..<camera.samples_per_pixel {
 				// get ray
 
-				offset := sample_square()
+				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
 				ray_direction := pixel_sample /* - camera.position */
 				r := ray{camera.position, ray_direction}
 
-				// ray_color
-
-				closest_t := math.inf_f64(0)
-				rec : hit_record
-				for &sphere in spheres {
-					if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &r, {0, closest_t}); ok {
-						if record.t < closest_t {
-							closest_t = record.t
-							rec = record
-						}
-					}
-				}
-
-				sample_color : color
-				if closest_t < math.inf_f64(0) {
-					sample_color = 0.5 * color(rec.normal + 1)
-				} else {
-					// NOTE(viktor): only needs to be normalized for the background gradient
-					r.direction = normalize(r.direction)
-					sample_color = ray_color(&r) // NOTE(viktor): background color (gradient)
-				}
-				pixel_color += sample_color
+				pixel_color += ray_color(&r, camera.max_ray_bounces, spheres)
 			}
 			write_color(os.stdout, pixel_samples_scale * pixel_color)
 		}
@@ -203,7 +252,13 @@ main :: proc () {
 	rand.reset(seed=1)
 
 	camera : camera
-	camera_init(&camera, target_aspect_ratio=16.0/9.0, image_width=400, samples_per_pixel=100)
+	camera_init(
+		&camera,
+		target_aspect_ratio=16.0/9.0,
+		image_width=400,
+		samples_per_pixel=100,
+		max_ray_bounces=50,
+	)
 
 	// Scene
 	spheres :: []sphere{ {center={0, 0, -1}, radius=0.5},
