@@ -111,16 +111,6 @@ hit_sphere_ranged :: proc(
 	return record, true
 }
 
-write_color :: proc (dst: os.Handle, pixel_color: color) {
-	// Translate the [0,1] component values to the byte range [0,255].
-	intensity :: vec2{0.000, 0.999}
-	ir := i32(256 * clamp(pixel_color.r, intensity.x, intensity.y))
-	ig := i32(256 * clamp(pixel_color.g, intensity.x, intensity.y))
-	ib := i32(256 * clamp(pixel_color.b, intensity.x, intensity.y))
-
-	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
-}
-
 background_color :: proc(r: ^ray) -> color {
 	// linear gradient between a and b
 	a := color{1.0, 1.0, 1.0}
@@ -163,6 +153,27 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 		output_color = background_color(r)
 	}
 	return output_color
+}
+
+///
+
+linear_to_gamma2 :: proc(linear_component : f64) -> f64 {
+	return linear_component > 0.0 ? math.sqrt(linear_component) : 0.0
+}
+
+write_color :: proc (dst: os.Handle, pixel_color: color) {
+	// Apply a linear to gamma transform for gamma 2
+	r := linear_to_gamma2(pixel_color.r)
+	g := linear_to_gamma2(pixel_color.g)
+	b := linear_to_gamma2(pixel_color.b)
+
+	// Translate the [0,1] component values to the byte range [0,255].
+	intensity :: vec2{0.000, 0.999}
+	ir := i32(256 * clamp(r, intensity.x, intensity.y))
+	ig := i32(256 * clamp(g, intensity.x, intensity.y))
+	ib := i32(256 * clamp(b, intensity.x, intensity.y))
+
+	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
 }
 
 sphere :: struct {
