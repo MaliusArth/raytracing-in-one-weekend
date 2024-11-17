@@ -133,9 +133,10 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 	// < 0 NOT <= 0 or do it in the if below
 	// if bounces < 0 do return color{0,0,0}
 
+	RAY_OFFSET :: 0.001 // prevent shadow acne
 	closest_record := hit_record{t=math.F64_MAX}
 	for &sphere in spheres {
-		if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {0, closest_record.t}); ok {
+		if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {RAY_OFFSET, closest_record.t}); ok {
 			if record.t < closest_record.t {
 				closest_record = record
 			}
