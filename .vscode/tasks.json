@@ -106,6 +106,7 @@
                 "showReuseMessage": false,
                 "clear": true
             },
+            "dependsOn": "build"
         },
         {
             "label": "test",
