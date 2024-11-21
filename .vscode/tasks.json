@@ -2,6 +2,28 @@
     // See https://go.microsoft.com/fwlink/?LinkId=733558
     // for the documentation about the tasks.json format
     "version": "2.0.0",
+    "problemMatcher": {
+        "fileLocation": [
+            "absolute"
+        ],
+        "pattern": {
+            "regexp": "^(.+\\.odin)\\(([0-9]+):([0-9]+)\\)\\s*(Error|Warning):\\s*(.*)$",
+            // "regexp": "^(.+\\.odin):([0-9]+):([0-9]+):\\s*(Error|Warning):\\s*(.*)$", // -error-pos-style:unix
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+        }
+    },
+    "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+    },
     "tasks": [
         {
             "label": "build file",
@@ -11,87 +33,36 @@
             "options": {
                 "cwd": "${workspaceFolder}"
             },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
-            },
-            "problemMatcher": {
-                "fileLocation": ["absolute"],
-                "pattern": {
-                    "regexp": "^(.+\\.odin)\\(([0-9]+):([0-9]+)\\)\\s*(Error|Warning):\\s*(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            }
         },
         {
             "label": "debug file",
             "type": "shell",
             "group": "none",
-            "command": "debug ${relativeFile} -file",
+            "command": "debug ${relativeFile}",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
-                "echo": true,
                 "reveal": "always",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
-            },
+            }
         },
         {
             "label": "build",
             "type": "shell",
             "group": "build",
             "command": "build ${workspaceFolderBasename}",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "silent",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
-            },
-            "problemMatcher": {
-                "fileLocation": ["absolute"],
-                "pattern": {
-                    "regexp": "^(.+\\.odin)\\(([0-9]+):([0-9]+)\\)\\s*(Error|Warning):\\s*(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            }
         },
         {
             "label": "debug",
             "type": "shell",
             "group": "none",
-            "command": "debug ${workspaceFolderBasename}",
+            "command": "debug ${workspaceFolderBasename} ${relativeFile}",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
-                "echo": true,
                 "reveal": "always",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
-            },
+            }
         },
         {
             "label": "run",
@@ -99,12 +70,7 @@
             "group": "none",
             "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm",
             "presentation": {
-                "echo": true,
                 "reveal": "always",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
             },
             "dependsOn": "build"
         },
@@ -113,17 +79,9 @@
             "type": "shell",
             "group": "test",
             "command": "build ${workspaceFolderBasename} -test",
-            // "options": {
-            //     "cwd": "${workspaceFolder}"
-            // },
             "presentation": {
-                "echo": true,
                 "reveal": "always",
-                "focus": false,
-                "panel": "dedicated",
-                "showReuseMessage": false,
-                "clear": true
             },
-        },
-    ]
+        }
+    ],
 }

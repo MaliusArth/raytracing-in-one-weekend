@@ -9,8 +9,12 @@ if "%1" == "" (
     goto :eof
 )
 
-set "file_name=%~n1"
 set "project_path=%~dp0"
+set "exe_name=%~n1"
+set "source_path=%~2"
+@REM set "source_name=%~n2"
+if "%source_path%"=="" set "source_name=%exe_name%"
+
 
 @REM tasklist /fi "imagename eq raddbg.exe"
 
@@ -18,7 +22,7 @@ for /f %%i in ('qprocess "remedybg.exe" ^2^>nul ^| find /i /c "remedybg.exe"') d
 @REM echo running debugger processes: %runningProcesses%
 @REM echo project path: %project_path%
 if "%runningProcesses%"=="0" (
-    start /max remedybg "%project_path%bin\%file_name%.exe"
+    start /max remedybg "bin\%exe_name%.exe"
 ) else (
     remedybg bring-debugger-to-foreground
 )
@@ -27,12 +31,12 @@ if "%runningProcesses%"=="0" (
 @REM if exist "%session_file%" start remedybg open-session "%session_file%"
 
 @REM set /p input=press ENTER to continue...
-@REM start remedybg "bin\%file_name%.exe"
-@REM start remedybg open-file "bin\%file_name%.exe"
+@REM start remedybg "bin\%exe_name%.exe"
+@REM start remedybg open-file "bin\%exe_name%.exe"
 @REM timeout /t 1
 @REM start /wait remedybg bring-debugger-to-foreground
 remedybg stop-debugging
-remedybg open-file "%project_path%\%file_name%.odin"
+remedybg open-file "%source_path%"
 remedybg add-breakpoint-at-function "main.main"
 remedybg start-debugging
 @REM remedybg remove-breakpoint-at-function "main.main"
