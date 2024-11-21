@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:math"
 import "core:math/rand"
+import "core:strings"
 
 /// vec
 
@@ -30,7 +31,6 @@ normalize :: proc(vec: vec3) -> vec3 {
 }
 
 /// random
-
 
 random_vec3 :: proc() -> vec3 {
 	return {rand.float64(), rand.float64(), rand.float64()}
@@ -161,7 +161,7 @@ linear_to_gamma2 :: proc(linear_component : f64) -> f64 {
 	return linear_component > 0.0 ? math.sqrt(linear_component) : 0.0
 }
 
-write_color :: proc (dst: os.Handle, pixel_color: color) {
+write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
 	// Apply a linear to gamma transform for gamma 2
 	r := linear_to_gamma2(pixel_color.r)
 	g := linear_to_gamma2(pixel_color.g)
@@ -173,7 +173,7 @@ write_color :: proc (dst: os.Handle, pixel_color: color) {
 	ig := i32(256 * clamp(g, intensity.x, intensity.y))
 	ib := i32(256 * clamp(b, intensity.x, intensity.y))
 
-	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
+	fmt.sbprintfln(dst, "%v %v %v", ir, ig, ib)
 }
 
 sphere :: struct {
@@ -221,7 +221,7 @@ camera_init :: proc(
 	camera.max_ray_bounces = max_ray_bounces
 }
 
-render :: proc(camera : camera, spheres : []sphere) {
+render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -240,7 +240,7 @@ render :: proc(camera : camera, spheres : []sphere) {
 	viewport_top_left := /* camera.position */ - vec3{camera.viewport.x*0.5, -camera.viewport.y*0.5, camera.focal_length}
 	pixel00_center_in_3d := viewport_top_left + 0.5 * pixel_deltas
 
-	fmt.printfln("P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
+	fmt.sbprintfln(str, "P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
 	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
 	for j in 0..<camera.image_size.y {
 		fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
@@ -256,7 +256,7 @@ render :: proc(camera : camera, spheres : []sphere) {
 
 				pixel_color += ray_color(&r, camera.max_ray_bounces, spheres)
 			}
-			write_color(os.stdout, pixel_samples_scale * pixel_color)
+			write_color(str, pixel_samples_scale * pixel_color)
 		}
 	}
 
@@ -283,12 +283,19 @@ main :: proc () {
 		// {center={0.65, 0.6, -0.8}, radius=0.3},
 		{center={0, -100.5, -1}, radius=100},
 	}
+	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
+
+	str: strings.Builder
+	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	defer strings.builder_destroy(&str)
 
 	// diff : time.Duration
 	// {
 	// 	time.SCOPED_TICK_DURATION(&diff)
-	render(camera, spheres)
+	render(&str, camera, spheres)
 	// }
+
+	fmt.fprintln(os.stdout, strings.to_string(str))
 
 	// fmt.eprintfln("render took %v", diff)
 }

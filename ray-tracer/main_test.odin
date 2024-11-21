@@ -8,7 +8,7 @@ import "core:math/rand"
 import "core:testing"
 import "core:time"
 
-render_unoptimized :: proc(camera : camera, spheres : []sphere) {
+render_unoptimized :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -56,14 +56,14 @@ render_unoptimized :: proc(camera : camera, spheres : []sphere) {
 				}
 				pixel_color += sample_color
 			}
-			write_color(os.stdout, pixel_samples_scale * pixel_color)
+			write_color(str, pixel_samples_scale * pixel_color)
 		}
 	}
 
 	fmt.eprintln("\rDone.                 ")
 }
 
-render_normalize_conditionally :: proc(camera : camera, spheres : []sphere) {
+render_normalize_conditionally :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -111,22 +111,21 @@ render_normalize_conditionally :: proc(camera : camera, spheres : []sphere) {
 				sample_color : color
 				if closest_t < math.inf_f64(0) {
 					sample_color = 0.5 * color(rec.normal + 1)
-				}
-				else {
+				} else {
 					// NOTE(viktor): only needs to be normalized for the background gradient
 					r.direction = normalize(r.direction)
 					sample_color = background_color(&r) // NOTE(viktor): background color (gradient)
 				}
 				pixel_color += sample_color
 			}
-			write_color(os.stdout, pixel_samples_scale * pixel_color)
+			write_color(str, pixel_samples_scale * pixel_color)
 		}
 	}
 
 	fmt.eprintln("\rDone.                 ")
 }
 
-render_set_color_conditionally :: proc(camera : camera, spheres : []sphere) {
+render_set_color_conditionally :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -178,7 +177,7 @@ render_set_color_conditionally :: proc(camera : camera, spheres : []sphere) {
 				}
 				pixel_color += sample_color
 			}
-			write_color(os.stdout, pixel_samples_scale * pixel_color)
+			write_color(str, pixel_samples_scale * pixel_color)
 		}
 	}
 
@@ -203,9 +202,24 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		{center={0, -100.5, -1}, radius=100},
 	}
 
+	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
+
+	str: strings.Builder
+	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	defer {
+		if fd, ferr := os.open("out/test.ppm", os.O_CREATE | os.O_RDWR); ferr != nil {
+			panic("couldn't open test.ppm")
+		} else {
+			defer os.close(fd)
+			fmt.fprintln(fd, strings.to_string(str))
+		}
+		strings.builder_destroy(&str)
+	}
+
 	for _/* round */ in 1..=options.rounds {
+		strings.builder_reset(&str)
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
-		render_normalize_conditionally(camera, spheres)
+		render_normalize_conditionally(&str, camera, spheres)
 	}
 	// fmt.eprintln("\rDone.       ")
 
@@ -232,9 +246,24 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		{center={0, -100.5, -1}, radius=100},
 	}
 
+	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
+
+	str: strings.Builder
+	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	defer {
+		if fd, ferr := os.open("out/test.ppm", os.O_CREATE | os.O_RDWR); ferr != nil {
+			panic("couldn't open test.ppm")
+		} else {
+			defer os.close(fd)
+			fmt.fprintln(fd, strings.to_string(str))
+		}
+		strings.builder_destroy(&str)
+	}
+
 	for _/* round */ in 1..=options.rounds {
+		strings.builder_reset(&str)
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
-		render_set_color_conditionally(camera, spheres)
+		render_set_color_conditionally(&str, camera, spheres)
 	}
 	// fmt.eprintln("\rDone.       ")
 
@@ -261,9 +290,24 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		{center={0, -100.5, -1}, radius=100},
 	}
 
+	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
+
+	str: strings.Builder
+	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	defer {
+		if fd, ferr := os.open("out/test.ppm", os.O_CREATE | os.O_RDWR); ferr != nil {
+			panic("couldn't open test.ppm")
+		} else {
+			defer os.close(fd)
+			fmt.fprintln(fd, strings.to_string(str))
+		}
+		strings.builder_destroy(&str)
+	}
+
 	for _/* round */ in 1..=options.rounds {
+		strings.builder_reset(&str)
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
-		render_unoptimized(camera, spheres)
+		render_unoptimized(&str, camera, spheres)
 	}
 	// fmt.eprintln("\rDone.       ")
 
