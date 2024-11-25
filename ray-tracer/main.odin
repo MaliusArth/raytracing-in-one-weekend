@@ -30,6 +30,39 @@ normalize :: proc(vec: vec3) -> vec3 {
 	return vec / magnitude(vec)
 }
 
+is_near_zero :: proc(vec: vec3) -> bool {
+	EPSILON :: 1e-8
+	return (math.abs(vec.x) <= EPSILON &&
+	        math.abs(vec.y) <= EPSILON &&
+	        math.abs(vec.z) <= EPSILON)
+}
+
+// ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
+reflect :: proc(vec, normal: vec3) -> vec3 {
+	return vec-2*dot(vec, normal)*normal
+}
+
+// src_refractive_index: refractive index of the medium the light is exiting
+// dst_refractive_index: refractive index of the medium the light is entering
+refract_with_reference_medium :: proc(vec, normal: vec3, src_refractive_index, dst_refractive_index: f64) -> vec3 {
+	return refract_with_relative_refractive_index(vec, normal, src_refractive_index / dst_refractive_index)
+}
+
+// ![refraction](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
+refract_with_relative_refractive_index :: proc(vec, normal: vec3, relative_refractive_index: f64) -> vec3 {
+	// vec & normal are expected to be normalized
+
+	// min() mitigates floating-point errors, valid range: [-1..1]
+	cos_theta := math.min(dot(-vec, normal), 1.0)
+	ray_out_perpendicular := relative_refractive_index * (vec + cos_theta*normal)
+
+	// max() mitigates floating-point errors, valid range:  [0..1]
+	ray_out_parallel := -math.sqrt(math.max(1.0-magnitude_squared(ray_out_perpendicular), 0.0))*normal
+	return ray_out_perpendicular + ray_out_parallel
+}
+
+refract :: proc { refract_with_reference_medium, refract_with_relative_refractive_index }
+
 /// random
 
 random_vec3 :: proc() -> vec3 {
@@ -72,11 +105,69 @@ ray :: struct {
 	direction : vec3,
 }
 
+// material_proc :: #type proc(data: rawptr)
+material_proc :: #type proc(
+	data: rawptr,
+	input_ray : ^ray,
+	hit : ^hit_record,
+) -> (output_ray : ray, attenuation : color)
+
+material :: struct {
+	procedure : material_proc,
+	data : rawptr,
+}
+
+lambertian_data :: struct {
+	albedo : color,
+}
+
+lambertian_proc :: proc(
+	data: rawptr,
+	input_ray : ^ray,
+	hit : ^hit_record,
+) -> (output_ray : ray, attenuation : color) {
+	// Lambertian (diffuse) reflectance can either
+	//  * always scatter and attenuate light according to its reflectance R,
+	//  * or it can sometimes scatter (with probability 1−R) with no attenuation (where a ray that isn't scattered is just absorbed into the material).
+	// It could also be a mixture of both those strategies. We will choose to always scatter
+
+	// normal_offset :: 1.001
+	output_direction := hit.normal /* * normal_offset */ + random_unit_vector()
+	// TODO(viktor): can't we just add some epsilon to the normal? this is just shadow acne all over again
+	if is_near_zero(output_direction) {
+		output_direction = hit.normal
+	}
+	output_ray = ray{hit.p, output_direction}
+
+	material := cast(^lambertian_data)data
+	attenuation = material.albedo
+	// Note the third option: we could scatter with some fixed probability p and have attenuation be albedo/p.
+	// p := fixed probability
+	// attenuation = material.albedo/p
+	return
+}
+
+metallic_data :: struct {
+	albedo : color,
+}
+
+metallic_proc :: proc(
+	data: rawptr,
+	input_ray : ^ray,
+	hit : ^hit_record,
+) -> (output_ray : ray, attenuation : color) {
+	output_direction := reflect(input_ray.direction, hit.normal)
+	output_ray = ray{hit.p, output_direction}
+
+	material := cast(^metallic_data)data
+	attenuation = material.albedo
+	return
+}
+
 hit_record :: struct {
 	p : point3,
 	normal : vec3,
 	t : f64,
-	// front_face : b8,
 }
 
 hit_sphere_ranged :: proc(
@@ -103,10 +194,8 @@ hit_sphere_ranged :: proc(
 	record.t = root
 	record.p = r.origin + root*r.direction
 	record.normal = (record.p - center^) / radius
-	/* record. */front_face := dot(r.direction, record.normal) < 0
-
-	// adjust normal to ray being inside/outside the sphere
-	record.normal = /* record. */front_face ? record.normal : -record.normal
+	front_face := dot(r.direction, record.normal) < 0
+	record.normal = front_face ? record.normal : -record.normal
 
 	return record, true
 }
@@ -123,29 +212,26 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 	// < 0 NOT <= 0 or do it in the if below
 	// if bounces < 0 do return color{0,0,0}
 
+	// raycast
+	closest_hit := hit_record{t=math.F64_MAX}
+	material : ^material
 	RAY_OFFSET :: 0.001 // prevent shadow acne
-	closest_record := hit_record{t=math.F64_MAX}
 	for &sphere in spheres {
-		if record, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {RAY_OFFSET, closest_record.t}); ok {
-			if record.t < closest_record.t {
-				closest_record = record
+		if hit, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {RAY_OFFSET, closest_hit.t}); ok {
+			if hit.t < closest_hit.t {
+				closest_hit = hit
+				material = sphere.material
 			}
 		}
 	}
 
 	output_color : color
-	if closest_record.t < math.F64_MAX {
+	if closest_hit.t < math.F64_MAX {
 		if bounces <= 0 { // don't recurse
 			output_color = color{0,0,0}
 		} else {
-			// Simple diffuse material
-			// reflection := random_point_on_hemisphere(closest_record.normal)
-
-			// Lambertian reflection
-			reflection := closest_record.normal + random_unit_vector()
-
-			reflected_ray := ray{closest_record.p, reflection}
-			output_color = 0.5 * ray_color(&reflected_ray, bounces-1, spheres)
+			reflected_ray, attenuation := material.procedure(material.data, r, &closest_hit)
+			output_color = attenuation * ray_color(&reflected_ray, bounces-1, spheres)
 		}
 	} else {
 		// NOTE(viktor): only needs to be normalized for the background gradient
@@ -179,6 +265,7 @@ write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
 sphere :: struct {
 	center : vec3,
 	radius : f64,
+	material : ^material,
 }
 
 camera :: struct {
@@ -276,13 +363,21 @@ main :: proc () {
 	)
 
 	// Scene
-	spheres :: []sphere{ {center={0, 0, -1}, radius=0.5},
-		// {center={0.2, 0.5, -1}, radius=0.2},
-		// {center={0.3, -0.1, -0.7}, radius=0.2},
-		// {center={-0.5, -0.25, -0.5}, radius=0.2},
-		// {center={0.65, 0.6, -0.8}, radius=0.3},
-		{center={0, -100.5, -1}, radius=100},
+	ground_data := lambertian_data{albedo={0.8, 0.8, 0.0}}
+	blue_data := lambertian_data{albedo={0.1, 0.2, 0.5}}
+
+	ground := material{procedure=lambertian_proc, data=&ground_data}
+	blue   := material{procedure=lambertian_proc, data=&blue_data}
+	silver := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.8, 0.8}}}
+	gold   := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.6, 0.2}}}
+
+	spheres := []sphere{
+		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
+		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
+		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&silver},
+		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
 	}
+
 	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
 
 	str: strings.Builder
