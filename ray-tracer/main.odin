@@ -170,7 +170,7 @@ hit_record :: struct {
 	t : f64,
 }
 
-hit_sphere_ranged :: proc(
+hit_sphere_ranged :: #force_inline proc(
 	center: ^point3, radius: f64,
 	r: ^ray, t_range: struct{min, max: f64},
 ) -> (value: hit_record, ok: bool) #optional_ok {
