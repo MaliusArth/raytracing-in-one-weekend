@@ -308,7 +308,7 @@ camera_init :: proc(
 	camera.max_ray_bounces = max_ray_bounces
 }
 
-render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
+render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $print_progress : bool) {
 	// rasterization
 
 	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
@@ -330,7 +330,7 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 	fmt.sbprintfln(str, "P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
 	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
 	for j in 0..<camera.image_size.y {
-		fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
+		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
 		for i in 0..<camera.image_size.x {
 			pixel_color : color
 			for _ in 0..<camera.samples_per_pixel {
@@ -347,7 +347,7 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
 		}
 	}
 
-	fmt.eprintln("\rDone.                   ")
+	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
 main :: proc () {
@@ -387,7 +387,7 @@ main :: proc () {
 	// diff : time.Duration
 	// {
 	// 	time.SCOPED_TICK_DURATION(&diff)
-	render(&str, camera, spheres)
+	render(&str, camera, spheres, true)
 	// }
 
 	fmt.fprintln(os.stdout, strings.to_string(str))

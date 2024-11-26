@@ -7,47 +7,6 @@ import "core:math/rand"
 import "core:testing"
 import "core:time"
 
-render_materials :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere) {
-	// rasterization
-
-	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
-	pixel_deltas : vec3 = {
-		camera.viewport.x / f64(camera.image_size.x),
-		-camera.viewport.y / f64(camera.image_size.y),
-		0,
-	}
-
-	// Calculate the location of the top left pixel.
-	/*
-	  NOTE(viktor): this is used to calculate the ray_direction which substracts the camera.position away again
-	  so we might as well leave it out altogether
-	*/
-	viewport_top_left := /* camera.position */ - vec3{camera.viewport.x*0.5, -camera.viewport.y*0.5, camera.focal_length}
-	pixel00_center_in_3d := viewport_top_left + 0.5 * pixel_deltas
-
-	fmt.sbprintfln(str, "P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
-	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
-	for j in 0..<camera.image_size.y {
-		// fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
-		for i in 0..<camera.image_size.x {
-			pixel_color : color
-			for _ in 0..<camera.samples_per_pixel {
-				// get ray
-
-				offset := random_vec2_range(-0.5, 0.5)
-				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
-				ray_direction := pixel_sample /* - camera.position */
-				r := ray{camera.position, ray_direction}
-
-				pixel_color += ray_color(&r, camera.max_ray_bounces, spheres)
-			}
-			write_color(str, pixel_samples_scale * pixel_color)
-		}
-	}
-
-	// fmt.eprintln("\rDone.                 ")
-}
-
 bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
 
@@ -87,7 +46,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	for _/* round */ in 1..=options.rounds {
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
 		strings.builder_reset(&str)
-		render_materials(&str, camera, spheres)
+		render(&str, camera, spheres, false)
 	}
 	// fmt.eprintln("\rDone.       ")
 
