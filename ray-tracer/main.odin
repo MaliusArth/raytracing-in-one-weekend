@@ -105,27 +105,22 @@ ray :: struct {
 	direction : vec3,
 }
 
-// material_proc :: #type proc(data: rawptr)
-material_proc :: #type proc(
-	data: rawptr,
-	input_ray : ^ray,
-	hit : ^hit_record,
-) -> (output_ray : ray, attenuation : color)
-
-material :: struct {
-	procedure : material_proc,
-	data : rawptr,
-}
-
 lambertian_data :: struct {
 	albedo : color,
 }
 
-lambertian_proc :: proc(
-	data: rawptr,
-	input_ray : ^ray,
-	hit : ^hit_record,
-) -> (output_ray : ray, attenuation : color) {
+lambertian_data_init :: proc(data : ^lambertian_data, albedo : color) {
+	data^ = {albedo}
+}
+
+lambertian_data_make :: proc(albedo : color) -> (result : lambertian_data) {
+	lambertian_data_init(&result, albedo)
+	return
+}
+
+// ![](https://raytracing.github.io/images/fig-1.14-rand-unitvec.jpg|width=200)
+lambertian_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
+                       (ray_out: ray, attenuation: color, ok: bool) {
 	// Lambertian (diffuse) reflectance can either
 	//  * always scatter and attenuate light according to its reflectance R,
 	//  * or it can sometimes scatter (with probability 1−R) with no attenuation (where a ray that isn't scattered is just absorbed into the material).
@@ -137,31 +132,56 @@ lambertian_proc :: proc(
 	if is_near_zero(output_direction) {
 		output_direction = hit.normal
 	}
-	output_ray = ray{hit.p, output_direction}
+	ray_out = ray{hit.p, output_direction}
 
 	material := cast(^lambertian_data)data
 	attenuation = material.albedo
 	// Note the third option: we could scatter with some fixed probability p and have attenuation be albedo/p.
 	// p := fixed probability
 	// attenuation = material.albedo/p
+	ok = true
 	return
 }
 
 metallic_data :: struct {
 	albedo : color,
+	fuzz : f64,
 }
 
-metallic_proc :: proc(
-	data: rawptr,
-	input_ray : ^ray,
-	hit : ^hit_record,
-) -> (output_ray : ray, attenuation : color) {
-	output_direction := reflect(input_ray.direction, hit.normal)
-	output_ray = ray{hit.p, output_direction}
+metallic_data_init :: proc(data: ^metallic_data, albedo: color, fuzz: f64) {
+	data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
+}
 
-	material := cast(^metallic_data)data
-	attenuation = material.albedo
+metallic_data_make :: proc(albedo: color, fuzz: f64) -> (result: metallic_data) {
+	metallic_data_init(&result, albedo, fuzz)
 	return
+}
+
+// ![](https://raytracing.github.io/images/fig-1.16-reflect-fuzzy.jpg|width=200)
+metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
+                     (ray_out: ray, attenuation: color, ok: bool) {
+	material := cast(^metallic_data)data
+	output_direction := normalize(reflect(ray_in.direction, hit.normal))
+	output_direction += material.fuzz * random_unit_vector()
+	ray_out = ray{hit.p, output_direction}
+
+	attenuation = material.albedo
+	ok = dot(output_direction, hit.normal) > 0
+	return
+}
+
+material_proc :: #type proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool)
+
+material :: struct {
+	procedure : material_proc,
+	data : rawptr,
+}
+
+material_make_lambertian :: proc(data: ^lambertian_data) -> material { return {lambertian_proc, data} }
+material_make_metallic   :: proc(data: ^metallic_data  ) -> material { return {metallic_proc,   data} }
+material_make :: proc {
+	material_make_lambertian,
+	material_make_metallic,
 }
 
 hit_record :: struct {
@@ -170,10 +190,8 @@ hit_record :: struct {
 	t : f64,
 }
 
-hit_sphere_ranged :: #force_inline proc(
-	center: ^point3, radius: f64,
-	r: ^ray, t_range: struct{min, max: f64},
-) -> (value: hit_record, ok: bool) #optional_ok {
+hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
+                                       (record: hit_record, ok: bool) {
 	o_c := center^ - r.origin
 	a := magnitude_squared(r.direction)
 	h := dot(r.direction, o_c)
@@ -190,7 +208,6 @@ hit_sphere_ranged :: #force_inline proc(
 		if root < t_range.min || t_range.max < root do return
 	}
 
-	record : hit_record
 	record.t = root
 	record.p = r.origin + root*r.direction
 	record.normal = (record.p - center^) / radius
@@ -228,10 +245,13 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 	output_color : color
 	if closest_hit.t < math.F64_MAX {
 		if bounces <= 0 { // don't recurse
-			output_color = color{0,0,0}
+			output_color = {0,0,0}
 		} else {
-			reflected_ray, attenuation := material.procedure(material.data, r, &closest_hit)
-			output_color = attenuation * ray_color(&reflected_ray, bounces-1, spheres)
+			if reflected_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
+				output_color = attenuation * ray_color(&reflected_ray, bounces-1, spheres)
+			} else {
+				output_color = {0,0,0}
+			}
 		}
 	} else {
 		// NOTE(viktor): only needs to be normalized for the background gradient
@@ -363,13 +383,10 @@ main :: proc () {
 	)
 
 	// Scene
-	ground_data := lambertian_data{albedo={0.8, 0.8, 0.0}}
-	blue_data := lambertian_data{albedo={0.1, 0.2, 0.5}}
-
-	ground := material{procedure=lambertian_proc, data=&ground_data}
-	blue   := material{procedure=lambertian_proc, data=&blue_data}
-	silver := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.8, 0.8}}}
-	gold   := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.6, 0.2}}}
+	ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
+	blue   := material_make(&lambertian_data{albedo={0.1, 0.2, 0.5}})
+	silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
+	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
 
 	spheres := []sphere{
 		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
@@ -378,19 +395,12 @@ main :: proc () {
 		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
 	}
 
-	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
-
 	str: strings.Builder
+	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
 	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
 	defer strings.builder_destroy(&str)
 
-	// diff : time.Duration
-	// {
-	// 	time.SCOPED_TICK_DURATION(&diff)
 	render(&str, camera, spheres, true)
-	// }
 
 	fmt.fprintln(os.stdout, strings.to_string(str))
-
-	// fmt.eprintfln("render took %v", diff)
 }
