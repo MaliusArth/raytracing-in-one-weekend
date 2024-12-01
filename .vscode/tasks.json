@@ -32,7 +32,7 @@
             "command": "build ${relativeFile} -file",
             "options": {
                 "cwd": "${workspaceFolder}"
-            },
+            }
         },
         {
             "label": "debug file",
@@ -43,14 +43,14 @@
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
-                "reveal": "always",
+                "reveal": "always"
             }
         },
         {
             "label": "build",
             "type": "shell",
             "group": "build",
-            "command": "build ${workspaceFolderBasename}",
+            "command": "build ${workspaceFolderBasename}"
         },
         {
             "label": "debug",
@@ -61,7 +61,7 @@
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
-                "reveal": "always",
+                "reveal": "always"
             }
         },
         {
@@ -70,9 +70,20 @@
             "group": "none",
             "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm",
             "presentation": {
-                "reveal": "always",
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "build & run",
+            "type": "shell",
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
             },
-            "dependsOn": "build"
+            "dependsOn": [
+                "build", "run"
+            ],
+            "dependsOrder": "sequence"
         },
         {
             "label": "test",
@@ -80,8 +91,8 @@
             "group": "test",
             "command": "build ${workspaceFolderBasename} -test",
             "presentation": {
-                "reveal": "always",
-            },
+                "reveal": "always"
+            }
         }
     ],
 }
