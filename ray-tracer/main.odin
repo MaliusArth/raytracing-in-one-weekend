@@ -42,8 +42,8 @@ reflect :: proc(vec, normal: vec3) -> vec3 {
 	return vec-2*dot(vec, normal)*normal
 }
 
-// src_refractive_index: refractive index of the medium the light is exiting
-// dst_refractive_index: refractive index of the medium the light is entering
+// * src_refractive_index: refractive index of the medium the light is exiting, aka. incident refractive index
+// * dst_refractive_index: refractive index of the medium the light is entering, aka. transmitted refractive index
 refract_with_reference_medium :: proc(vec, normal: vec3, src_refractive_index, dst_refractive_index: f64) -> vec3 {
 	return refract_with_relative_refractive_index(vec, normal, src_refractive_index / dst_refractive_index)
 }
@@ -170,6 +170,31 @@ metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 	return
 }
 
+dielectric_data :: struct {
+	refractive_index: f64,
+}
+
+dielectric_data_init :: proc(data: ^dielectric_data, refraction_index: f64) {
+	data^ = {refraction_index}
+}
+
+dielectric_data_make :: proc(refraction_index: f64) -> (result: dielectric_data) {
+	dielectric_data_init(&result, refraction_index)
+	return
+}
+
+// ![](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
+dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
+	material := cast(^dielectric_data)data
+	refractive_index := hit.front_face ? 1.0/material.refractive_index : material.refractive_index
+	output_direction := refract(normalize(ray_in.direction), hit.normal, refractive_index)
+	ray_out = ray{hit.p, output_direction}
+
+	attenuation = {1,1,1}
+	ok = true
+	return
+}
+
 material_proc :: #type proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool)
 
 material :: struct {
@@ -179,15 +204,18 @@ material :: struct {
 
 material_make_lambertian :: proc(data: ^lambertian_data) -> material { return {lambertian_proc, data} }
 material_make_metallic   :: proc(data: ^metallic_data  ) -> material { return {metallic_proc,   data} }
+material_make_dielectric :: proc(data: ^dielectric_data) -> material { return {dielectric_proc, data} }
 material_make :: proc {
 	material_make_lambertian,
 	material_make_metallic,
+	material_make_dielectric,
 }
 
 hit_record :: struct {
 	p : point3,
 	normal : vec3,
 	t : f64,
+	front_face : bool,
 }
 
 hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
@@ -211,8 +239,8 @@ hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t
 	record.t = root
 	record.p = r.origin + root*r.direction
 	record.normal = (record.p - center^) / radius
-	front_face := dot(r.direction, record.normal) < 0
-	record.normal = front_face ? record.normal : -record.normal
+	record.front_face = dot(r.direction, record.normal) < 0
+	record.normal = record.front_face ? record.normal : -record.normal
 
 	return record, true
 }
@@ -385,13 +413,14 @@ main :: proc () {
 	// Scene
 	ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
 	blue   := material_make(&lambertian_data{albedo={0.1, 0.2, 0.5}})
-	silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
+	// silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
 	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
+	glass  := material_make(&dielectric_data{refractive_index=1.5})
 
 	spheres := []sphere{
 		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
 		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
-		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&silver},
+		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
 		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
 	}
 
