@@ -187,7 +187,18 @@ dielectric_data_make :: proc(refraction_index: f64) -> (result: dielectric_data)
 dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
 	material := cast(^dielectric_data)data
 	refractive_index := hit.front_face ? 1.0/material.refractive_index : material.refractive_index
-	output_direction := refract(normalize(ray_in.direction), hit.normal, refractive_index)
+
+	unit_direction := normalize(ray_in.direction)
+	cos_theta := math.min(dot(-unit_direction, hit.normal), 1.0)
+	sin_theta := math.sqrt(1.0-cos_theta*cos_theta)
+
+	can_refract := (refractive_index * sin_theta) <= 1.0
+	output_direction: vec3
+	if !can_refract {
+		output_direction = reflect(unit_direction, hit.normal)
+	} else {
+		output_direction = refract(unit_direction, hit.normal, refractive_index)
+	}
 	ray_out = ray{hit.p, output_direction}
 
 	attenuation = {1,1,1}
