@@ -2,10 +2,31 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:math"
 
-color :: [3]f64
+color :: distinct [3]f64
+vec3 :: distinct [3]f64
+point3 :: vec3
 
-write_color :: proc (dst : os.Handle, pixel_color : color)
+magnitude :: proc(vec: vec3) -> f64
+{
+	return math.sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z)
+}
+
+normalize :: proc(vec: vec3) -> vec3
+{
+	vec := vec // explicit mutation via shadowing
+	vec = vec / magnitude(vec)
+	return vec
+}
+
+ray :: struct
+{
+	origin: point3,
+	direction: vec3,
+}
+
+write_color :: proc (dst: os.Handle, pixel_color: color)
 {
 	ir := i32(255.999 * pixel_color.x)
 	ig := i32(255.999 * pixel_color.y)
@@ -14,12 +35,43 @@ write_color :: proc (dst : os.Handle, pixel_color : color)
 	fmt.fprintfln(dst, "%v %v %v", ir, ig, ib)
 }
 
+ray_color :: proc(r: ^ray) -> color
+{
+	// linear gradient between a and b
+	a := color{1.0, 1.0, 1.0}
+	b := color{0.5, 0.7, 1.0}
+	t := 0.5 * (r.direction.y + 1.0)
+	return (1 - t) * a + t * b
+}
+
 main :: proc ()
 {
 	// Image
 
-	image_width : i32 = 256
-	image_height : i32 = 256
+	aspect_ratio :: 16.0 / 9.0
+	image_width :: 400
+
+	// Calculate the image height, and ensure that it's at least 1.
+	image_height :: max(1, i64(f64(image_width)/aspect_ratio))
+
+	// Camera
+
+	focal_length :: 1.0
+	viewport_height :: 2.0
+	viewport_width :: viewport_height * (f64(image_width)/f64(image_height))
+	camera_center :: point3{} // default zero initialized
+
+	// Calculate the vectors across the horizontal and down the vertical viewport edges.
+	viewport_u :: vec3{viewport_width, 0, 0}
+	viewport_v :: vec3{0, -viewport_height, 0}
+
+	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
+	pixel_delta_u := viewport_u / f64(image_width)
+	pixel_delta_v := viewport_v / f64(image_height)
+
+	// Calculate the location of the upper left pixel.
+	viewport_top_left := camera_center - vec3{0, 0, focal_length} - viewport_u/2.0 - viewport_v/2.0
+	pixel00_loc := viewport_top_left + 0.5 * (pixel_delta_u + pixel_delta_v)
 
 	// Render
 
@@ -27,12 +79,18 @@ main :: proc ()
 	fmt.printfln("%v %v", image_width, image_height)
 	fmt.println("255")
 
-	for j : i32; j < image_height; j+=1
+	for j in 0..<image_height
 	{
 		fmt.eprintf("\rScanlines remaining: %v", image_height - j)
-		for i : i32; i < image_width; i+=1
+		for i in 0..<image_width
 		{
-			pixel_color := color{f64(i) / f64(image_width-1), f64(j) / f64(image_height-1), 0}
+			pixel_center := pixel00_loc + (f64(i) * pixel_delta_u) + (f64(j) * pixel_delta_v)
+			ray_direction := pixel_center - camera_center
+			ray_direction = normalize(ray_direction)
+			r := ray{camera_center, ray_direction}
+
+			pixel_color := ray_color(&r)
+
 			write_color(os.stdout, pixel_color)
 		}
 	}
