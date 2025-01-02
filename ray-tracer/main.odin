@@ -335,7 +335,7 @@ background_color :: proc(r: ^ray) -> color {
 	a := color{1.0, 1.0, 1.0}
 	b := color{0.5, 0.7, 1.0}
 	t := 0.5 * (r.direction.y + 1.0)
-	return (1 - t) * a + t * b
+	return math.lerp(a, b, t)
 }
 
 ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
