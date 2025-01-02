@@ -37,8 +37,15 @@ is_near_zero :: proc(vec: vec3) -> bool {
 	        math.abs(vec.z) <= EPSILON)
 }
 
+is_normalized :: proc(vec: vec3) -> bool {
+	EPSILON :: 1e-10
+	mag2 := magnitude_squared(vec)
+	return 1-EPSILON <= mag2 && mag2 <= 1+EPSILON
+}
+
 // ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
 reflect :: proc(vec, normal: vec3) -> vec3 {
+	// vec & normal don't need to be normalized
 	return vec-2*dot(vec, normal)*normal
 }
 
@@ -50,7 +57,18 @@ refract_with_reference_medium :: proc(vec, normal: vec3, src_refractive_index, d
 
 // ![refraction](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
 refract_with_relative_refractive_index :: proc(vec, normal: vec3, relative_refractive_index: f64) -> vec3 {
-	// vec & normal are expected to be normalized
+	// contract: vec & normal are expected to be normalized
+	// contract: can_refract := (rel_refractive_index * sin_theta) <= 1.0
+	fmt.assertf(is_normalized(vec),    "vector needs to be normalized! %v", magnitude_squared(vec))
+	fmt.assertf(is_normalized(normal), "vector needs to be normalized! %v", magnitude_squared(normal))
+	when !ODIN_DISABLE_ASSERT {
+	{
+		cos_theta := math.min(dot(-vec, normal), 1.0)
+		sin_theta := math.sqrt(1.0 - cos_theta*cos_theta)
+		can_refract := relative_refractive_index * sin_theta <= 1.0
+		assert(can_refract)
+	}
+	}
 
 	// min() mitigates floating-point errors, valid range: [-1..1]
 	cos_theta := math.min(dot(-vec, normal), 1.0)
@@ -186,18 +204,74 @@ dielectric_data_make :: proc(refraction_index: f64) -> (result: dielectric_data)
 // ![](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
 dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
 	material := cast(^dielectric_data)data
-	refractive_index := hit.front_face ? 1.0/material.refractive_index : material.refractive_index
+
+	// materials with a refractive_index < 1 (air/vaccuum) are treated as air/vaccuum materials
+	// inside a denser material with the effective refractive index of 1/material.refractive_index
+	src_refractive_index := 1.0                       if material.refractive_index >= 1.0 else 1.0 / material.refractive_index
+	dst_refractive_index := material.refractive_index if material.refractive_index >= 1.0 else 1.0
+
+	if !hit.front_face {
+		// swap
+		tmp := src_refractive_index
+		src_refractive_index = dst_refractive_index
+		dst_refractive_index = tmp
+	}
+
+	rel_refractive_index := src_refractive_index / dst_refractive_index
 
 	unit_direction := normalize(ray_in.direction)
-	cos_theta := math.min(dot(-unit_direction, hit.normal), 1.0)
+	cos_theta := dot(-unit_direction, hit.normal)
+	// math.saturate/math.clamp [0..1]
+	cos_theta  = math.min(cos_theta, 1.0)
+	// assert(cos_theta >= 0.0)
 	sin_theta := math.sqrt(1.0-cos_theta*cos_theta)
 
-	can_refract := (refractive_index * sin_theta) <= 1.0
+	reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
+		n1 := src_refractive_index
+		n2 := dst_refractive_index
+
+		x := (n1 / n2) * sin_i
+		x *= x
+		x_invpow := 1.0 - x
+		subexp := math.sqrt(x_invpow)
+
+		x1  := n1 * cos_i
+		x2  := n2 * subexp
+		R_s := (x1 - x2)
+		R_s /= (x1 + x2)
+		R_s *= R_s
+
+		x1   = n1 * subexp
+		x2   = n2 * cos_i
+		R_p := (x1 - x2)
+		R_p /= (x1 + x2)
+		R_p *= R_p
+
+		return (R_s + R_p) * 0.5 // avg
+	}
+
+	reflectance_schlicks_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
+		r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
+		r0 *= r0
+
+		a := 1.0 - cos_i
+		a = math.pow(a, 5)
+		return math.lerp(a, 1.0, r0)
+	}
+	reflectance :: proc{reflectance_schlicks_approximation, reflectance_fresnel}
+
+	// NOTE: total internal reflection:
+	// When a ray interfaces with the surface of a less dense external medium at an angle beyond a certain critical angle
+	// it is completely reflected inside the internal medium.
+
+	// determine if angle is beyond critical angle for total internal reflection
+	must_reflect := (rel_refractive_index * sin_theta) > 1.0
 	output_direction: vec3
-	if !can_refract {
+
+	if must_reflect || reflectance(cos_theta, rel_refractive_index) > rand.float64() {
 		output_direction = reflect(unit_direction, hit.normal)
 	} else {
-		output_direction = refract(unit_direction, hit.normal, refractive_index)
+		output_direction = refract(unit_direction, hit.normal, rel_refractive_index)
 	}
 	ray_out = ray{hit.p, output_direction}
 
@@ -427,11 +501,13 @@ main :: proc () {
 	// silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
 	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
 	glass  := material_make(&dielectric_data{refractive_index=1.5})
+	air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
 
 	spheres := []sphere{
 		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
 		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
 		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
+		{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
 		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
 	}
 
