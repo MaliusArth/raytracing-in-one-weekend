@@ -4,7 +4,7 @@ echo %~0 %*
 
 :: setlocal enabledelayedexpansion
 if "%1" == "" (
-    echo "you forgot to pass a source file"
+    echo missing source file
     goto :eof
 )
 

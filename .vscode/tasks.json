@@ -18,81 +18,61 @@
     },
     "presentation": {
         "echo": true,
-        "reveal": "silent",
+        "reveal": "never",
         "focus": false,
         "panel": "dedicated",
         "showReuseMessage": false,
         "clear": true
     },
+    "type": "shell",
     "tasks": [
         {
-            "label": "build file",
-            "type": "shell",
-            "group": "build",
-            "command": "build ${relativeFile} -file",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            }
+            "label": "build debug file",
+            "command": "build debug ${relativeFile} -file",
+        },
+        {
+            "label": "build release file",
+            "command": "build release ${relativeFile} -file",
         },
         {
             "label": "debug file",
-            "type": "shell",
-            "group": "none",
             "command": "debug ${relativeFile}",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "presentation": {
-                "reveal": "always"
-            }
+            "dependsOn": "build debug file",
         },
         {
-            "label": "build",
-            "type": "shell",
-            "group": "build",
-            "command": "build ${workspaceFolderBasename}"
+            "label": "build debug",
+            "command": "build debug ${workspaceFolderBasename}",
+        },
+        {
+            "label": "build release",
+            "command": "build release ${workspaceFolderBasename}",
         },
         {
             "label": "debug",
-            "type": "shell",
-            "group": "none",
             "command": "debug ${workspaceFolderBasename} ${relativeFile}",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "presentation": {
-                "reveal": "always"
-            }
+            "dependsOn": "build debug",
+        },
+        {
+            "label": "build debug & run",
+            "command": "md .\\out 2>nul & build debug ${workspaceFolderBasename} -run > .\\out\\image.ppm",
+        },
+        {
+            "label": "build release & run",
+            "command": "md .\\out 2>nul & build release ${workspaceFolderBasename} -run > .\\out\\image.ppm",
         },
         {
             "label": "run",
-            "type": "shell",
-            "group": "none",
-            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm",
-            "presentation": {
-                "reveal": "always"
-            }
+            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
         },
-        {
-            "label": "build & run",
-            "type": "shell",
-            "group": "build",
-            "presentation": {
-                "reveal": "always"
-            },
-            "dependsOn": [
-                "build", "run"
-            ],
-            "dependsOrder": "sequence"
-        },
+        // {
+        //     "label": "build debug & run",
+        //     "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
+        //     "dependsOn": "build debug",
+        // },
         {
             "label": "test",
-            "type": "shell",
             "group": "test",
-            "command": "build ${workspaceFolderBasename} -test",
-            "presentation": {
-                "reveal": "always"
-            }
+            "command": "build fast ${workspaceFolderBasename} -test",
         }
     ],
 }
