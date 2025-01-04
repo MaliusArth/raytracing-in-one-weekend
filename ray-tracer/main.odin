@@ -13,6 +13,11 @@ vec2i :: distinct [2]i64
 vec3 :: distinct [3]f64
 color :: vec3
 point3 :: vec3
+turns :: f64 // [0, 1]
+// turns :: distinct f64 // [0, 1]
+// radians :: distinct f64 // [0, math.TAU]
+turns_to_radians :: proc(θ: turns) -> f64 { return θ * math.TAU }
+
 
 dot :: proc(a: vec3, b: vec3) -> f64 {
 	return a.x*b.x + a.y*b.y + a.z*b.z
@@ -409,6 +414,7 @@ camera :: struct {
 	viewport : vec2,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
+	vfov : turns,
 }
 
 camera_init :: proc(
@@ -420,21 +426,21 @@ camera_init :: proc(
 	// viewport : vec2,
 	samples_per_pixel : i64 = 10,
 	max_ray_bounces : i64 = 10,
+	vfov : turns = 0.25, // 1/4 turn
 ) {
-	// Image
 	camera.position = position
-
 	camera.focal_length = focal_length
-	camera.image_size.x = image_width
 
-	// Calculate the image height, and ensure that it's at least 1.
-	camera.image_size.y = max(1, i64(f64(camera.image_size.x)/target_aspect_ratio))
+	camera.image_size.x = image_width
+	camera.image_size.y = max(1, i64(f64(image_width) / target_aspect_ratio))
 	// TODO(viktor): instead of adjusting the ratio, adjust width?
 	// adjust ratio in case height had to be overwritten to 1
-	camera.aspect_ratio = f64(camera.image_size.x)/f64(camera.image_size.y)
+	camera.aspect_ratio = f64(camera.image_size.x) / f64(camera.image_size.y)
 
-	// TODO(viktor): why is this hardcoded and why height?
-	viewport_height := 2.0
+	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
+	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
+	unit_height := 2 * math.tan(turns_to_radians(vfov / 2))
+	viewport_height := focal_length * unit_height
 	camera.viewport = {viewport_height * camera.aspect_ratio, viewport_height}
 
 	camera.samples_per_pixel = samples_per_pixel
@@ -496,20 +502,27 @@ main :: proc () {
 	)
 
 	// Scene
-	ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
+	// ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
 	blue   := material_make(&lambertian_data{albedo={0.1, 0.2, 0.5}})
 	// silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
 	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
-	glass  := material_make(&dielectric_data{refractive_index=1.5})
-	air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
+	// glass  := material_make(&dielectric_data{refractive_index=1.5})
+	// air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
+
+	sphere_radius := math.cos_f64(0.25*math.PI) // 45 degrees
 
 	spheres := []sphere{
-		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
-		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
-		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
-		{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
-		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
+		{center={ -sphere_radius, 0, -1}, radius=sphere_radius, material=&blue},
+		{center={  sphere_radius, 0, -1}, radius=sphere_radius, material=&gold},
 	}
+
+	// spheres := []sphere{
+	// 	{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
+	// 	{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
+	// 	{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
+	// 	{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
+	// 	{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
+	// }
 
 	str: strings.Builder
 	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
