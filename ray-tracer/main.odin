@@ -8,19 +8,34 @@ import "core:strings"
 
 /// vec
 
-vec2 :: distinct [2]f64
-vec2i :: distinct [2]i64
-vec3 :: distinct [3]f64
-color :: vec3
-point3 :: vec3
-turns :: f64 // [0, 1]
+f64x2  :: [2]f64
+f64x3  :: [3]f64
+i64x2  :: [2]i64
+intx2  :: [2]int
+v3     :: f64x3
+vec3   :: f64x3
+point3 :: f64x3
+color  :: f64x3
+v2     :: f64x2
+vec2   :: f64x2
+turns  :: f64 // [0, 1]
 // turns :: distinct f64 // [0, 1]
 // radians :: distinct f64 // [0, math.TAU]
 turns_to_radians :: proc(θ: turns) -> f64 { return θ * math.TAU }
 
 
-dot :: proc(a: vec3, b: vec3) -> f64 {
+/// linalg
+
+dot :: proc(a, b: vec3) -> f64 {
 	return a.x*b.x + a.y*b.y + a.z*b.z
+}
+
+cross :: proc(a, b: vec3) -> vec3 {
+	result: vec3
+	result[0] = a[1]*b[2] - b[1]*a[2]
+	result[1] = a[2]*b[0] - b[2]*a[0]
+	result[2] = a[0]*b[1] - b[0]*a[1]
+	return result
 }
 
 magnitude_squared :: proc(vec: vec3) -> f64 {
@@ -46,6 +61,15 @@ is_normalized :: proc(vec: vec3) -> bool {
 	EPSILON :: 1e-10
 	mag2 := magnitude_squared(vec)
 	return 1-EPSILON <= mag2 && mag2 <= 1+EPSILON
+}
+
+lookat :: proc(position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3 = {0, 1, 0}) -> (right, up, forward: vec3) {
+
+	// view cartesian coordinate system
+	forward = normalize(target - position)
+	right   = normalize(cross(forward, axis_up))
+	up      = cross(right, forward)
+	return
 }
 
 // ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
@@ -126,6 +150,13 @@ random_point_on_hemisphere :: proc(normal : vec3) -> vec3 {
 ray :: struct {
 	origin : point3,
 	direction : vec3,
+}
+
+hit_record :: struct {
+	p : point3,
+	normal : vec3,
+	t : f64,
+	front_face : bool,
 }
 
 lambertian_data :: struct {
@@ -301,13 +332,6 @@ material_make :: proc {
 	material_make_dielectric,
 }
 
-hit_record :: struct {
-	p : point3,
-	normal : vec3,
-	t : f64,
-	front_face : bool,
-}
-
 hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
                                        (record: hit_record, ok: bool) {
 	o_c := center^ - r.origin
@@ -408,10 +432,14 @@ sphere :: struct {
 
 camera :: struct {
 	position : point3,
+	// orientation : quaternion256,
+	right: vec3,
+	up: vec3,
+	forward: vec3,
 	focal_length : f64,
 	aspect_ratio : f64,
-	image_size : vec2i,
-	viewport : vec2,
+	image_size : vec2,
+	viewport_size : vec2,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
 	vfov : turns,
@@ -419,7 +447,11 @@ camera :: struct {
 
 camera_init :: proc(
 	camera : ^camera,
-	position := point3{},
+	position : point3 = {},
+	right : vec3 = {1, 0, 0},
+	up : vec3 = {0, 1, 0},
+	forward : vec3 = {0, 0, -1},
+	// orientation : quaternion256 = {},
 	focal_length : f64 = 1.0,
 	target_aspect_ratio : f64 = 1.0,
 	image_width : i64 = 100,
@@ -429,60 +461,66 @@ camera_init :: proc(
 	vfov : turns = 0.25, // 1/4 turn
 ) {
 	camera.position = position
+	// camera.orientation = orientation
+	camera.right = right
+	camera.up = up
+	camera.forward = forward
 	camera.focal_length = focal_length
 
-	camera.image_size.x = image_width
-	camera.image_size.y = max(1, i64(f64(image_width) / target_aspect_ratio))
+	camera.image_size.x = cast(f64)image_width
+	camera.image_size.y = max(1, cast(f64)image_width / target_aspect_ratio)
 	// TODO(viktor): instead of adjusting the ratio, adjust width?
 	// adjust ratio in case height had to be overwritten to 1
-	camera.aspect_ratio = f64(camera.image_size.x) / f64(camera.image_size.y)
+	camera.aspect_ratio = camera.image_size.x / camera.image_size.y
 
 	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	unit_height := 2 * math.tan(turns_to_radians(vfov / 2))
 	viewport_height := focal_length * unit_height
-	camera.viewport = {viewport_height * camera.aspect_ratio, viewport_height}
+	viewport_width  := viewport_height * camera.aspect_ratio
+	camera.viewport_size = {viewport_width, viewport_height}
 
 	camera.samples_per_pixel = samples_per_pixel
 	camera.max_ray_bounces = max_ray_bounces
 }
 
 render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $print_progress : bool) {
-	// rasterization
+	// view-space
+	pixel_deltas_vs := camera.viewport_size / camera.image_size * vec2{1, -1} // vertical flip
 
-	// Calculate the horizontal and vertical delta vectors from pixel to pixel.
-	pixel_deltas : vec3 =
-	{
-		 camera.viewport.x / f64(camera.image_size.x),
-		-camera.viewport.y / f64(camera.image_size.y),
-		0,
-	}
+	// world-space
+	pixel_delta_u := camera.right * pixel_deltas_vs.x
+	pixel_delta_v := camera.up    * pixel_deltas_vs.y
 
-	// Calculate the location of the top left pixel.
-	/*
-	  NOTE(viktor): this is used to calculate the ray_direction which substracts the camera.position away again
-	  so we might as well leave it out altogether
-	*/
-	viewport_top_left := /* camera.position */ - vec3{camera.viewport.x*0.5, -camera.viewport.y*0.5, camera.focal_length}
-	pixel00_center_in_3d := viewport_top_left + 0.5 * pixel_deltas
+	// view-space
+	view_plane_top_left_pixel_center := camera.viewport_size * 0.5 * vec2{-1, 1} + pixel_deltas_vs * 0.5
 
-	fmt.sbprintfln(str, "P3\n%v %v\n255", camera.image_size.x, camera.image_size.y)
-	pixel_samples_scale := 1.0 / f64(camera.samples_per_pixel)
-	for j in 0..<camera.image_size.y {
-		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", camera.image_size.y - j)
-		for i in 0..<camera.image_size.x {
+	// world-space
+	view_plane_top_left_pixel_center_ws :=
+		camera.position +
+		camera.forward  * camera.focal_length +
+		camera.right    * view_plane_top_left_pixel_center.x +
+		camera.up       * view_plane_top_left_pixel_center.y
+
+	image_width  := cast(int)camera.image_size.x
+	image_height := cast(int)camera.image_size.y
+	pixel_sample_contribution_scale := 1.0 / f64(camera.samples_per_pixel)
+	for v in 0..<image_height {
+		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
+		for u in 0..<image_width {
 			pixel_color : color
 			for _ in 0..<camera.samples_per_pixel {
-				// get ray
-
 				offset := random_vec2_range(-0.5, 0.5)
-				pixel_sample := pixel00_center_in_3d + pixel_deltas * (vec3{f64(i), f64(j), 0} + offset)
-				ray_direction := pixel_sample /* - camera.position */
-				r := ray{camera.position, ray_direction}
+				pixel_sample :=
+					view_plane_top_left_pixel_center_ws +
+					pixel_delta_u * (cast(f64)u + offset.x) +
+					pixel_delta_v * (cast(f64)v + offset.y)
 
+				ray_direction := pixel_sample - camera.position
+				r := ray{camera.position, ray_direction}
 				pixel_color += ray_color(&r, camera.max_ray_bounces, spheres)
 			}
-			write_color(str, pixel_samples_scale * pixel_color)
+			write_color(str, pixel_sample_contribution_scale * pixel_color)
 		}
 	}
 
@@ -499,30 +537,46 @@ main :: proc () {
 		image_width=400,
 		samples_per_pixel=100,
 		max_ray_bounces=50,
+		position={-2, 2, 1},
+		vfov=20.0/360.0,
 	)
 
 	// Scene
-	// ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
+	ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
 	blue   := material_make(&lambertian_data{albedo={0.1, 0.2, 0.5}})
 	// silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
 	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
-	// glass  := material_make(&dielectric_data{refractive_index=1.5})
-	// air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
+	glass  := material_make(&dielectric_data{refractive_index=1.5})
+	air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
 
-	sphere_radius := math.cos_f64(0.25*math.PI) // 45 degrees
+	// black  := material_make(&lambertian_data{albedo={0.1, 0.1, 0.1}})
+	// red    := material_make(&lambertian_data{albedo={0.5, 0.2, 0.1}})
+	// green  := material_make(&lambertian_data{albedo={0.2, 0.5, 0.1}})
 
 	spheres := []sphere{
-		{center={ -sphere_radius, 0, -1}, radius=sphere_radius, material=&blue},
-		{center={  sphere_radius, 0, -1}, radius=sphere_radius, material=&gold},
+		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
+		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
+		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
+		{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
+		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
+
+		// {center={ 0.0,    0.0,  0.0}, radius=0.1,  material=&black},
+		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&red},
+		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&green},
+		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&blue},
 	}
 
-	// spheres := []sphere{
-	// 	{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
-	// 	{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
-	// 	{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
-	// 	{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
-	// 	{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
-	// }
+	// black_ball   := &spheres[5]
+	// right_ball   := &spheres[6]
+	// up_ball      := &spheres[7]
+	// forward_ball := &spheres[8]
+
+	// right_ball.center, up_ball.center, forward_ball.center =
+	// 	lookat(position=black_ball.center, target=spheres[4].center, axis_up={0, 1, 0})
+	// right_ball.center *= 0.1
+	// up_ball.center *= 0.1
+	// forward_ball.center *= 0.1
+	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
 
 	str: strings.Builder
 	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
