@@ -579,11 +579,13 @@ main :: proc () {
 	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
 
 	str: strings.Builder
-	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
-	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	header := fmt.aprintfln("P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
+	defer delete_string(header)
+	strings.builder_init(&str, 0, len(header) + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 3 * 4)
+	fmt.sbprint(&str, header)
 	defer strings.builder_destroy(&str)
 
 	render(&str, camera, spheres, true)
 
-	fmt.fprintln(os.stdout, strings.to_string(str))
+	fmt.fprint(os.stdout, strings.to_string(str))
 }

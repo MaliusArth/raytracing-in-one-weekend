@@ -81,6 +81,7 @@ set "style_settings=-vet -strict-style -vet-using-param -vet-cast -vet-tabs"
 
 :: -sanitize:address
 
+if "%-build_setting%"=="sanitize"   set "compiler_settings=-o:minimal -debug -sanitize:address"
 if "%-build_setting%"=="debug"   set "compiler_settings=-o:minimal -debug"
 if "%-build_setting%"=="release" set "compiler_settings=-o:speed   -debug"
 if "%-build_setting%"=="fast"    set "compiler_settings=-o:aggressive -disable-assert"
@@ -88,7 +89,7 @@ if "%-build_setting%"=="fast"    set "compiler_settings=-o:aggressive -disable-a
 if "%-build_setting%"=="asm"     set "compiler_settings=-o:speed -build-mode:asm -keep-temp-files"
 
 set "-command=build"
-if "%-test%"=="1" set "-command=test"
+if "%-test%"=="1" set "-command=test" && set "compiler_settings=%compiler_settings% -define:ODIN_TEST_THREADS=1"
 if "%-run%"=="1"  set "-command=run"
 
 set "out_dir=bin"
