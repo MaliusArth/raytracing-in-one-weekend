@@ -9,7 +9,6 @@ import "core:time"
 
 bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
-
 	rand.create(0)
 
 	camera : camera
@@ -28,16 +27,16 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
 	}
 
-	PPM_HEADER_SIZE :: 3 + 2 * 4 + 3
-
 	str: strings.Builder
-	strings.builder_init(&str, 0, cast(int)(camera.image_size.x * camera.image_size.y * 3 * 4 + PPM_HEADER_SIZE))
+	header := fmt.aprintfln("P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
+	defer delete_string(header)
+	strings.builder_init(&str, 0, len(header) + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 3 * 4)
 	defer {
 		if fd, ferr := os.open("out/test.ppm", os.O_CREATE | os.O_RDWR); ferr != nil {
 			err = .Allocation_Error
 			// panic("couldn't open test.ppm")
 		} else {
-			fmt.fprintln(fd, strings.to_string(str))
+			fmt.fprint(fd, strings.to_string(str))
 			os.close(fd)
 		}
 		strings.builder_destroy(&str)
@@ -46,6 +45,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	for _/* round */ in 1..=options.rounds {
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
 		strings.builder_reset(&str)
+		fmt.sbprint(&str, header)
 		render(&str, camera, spheres, false)
 	}
 	// fmt.eprintln("\rDone.       ")
@@ -56,9 +56,32 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 }
 
 @(test)
+benchmark_materials_once :: proc(t: ^testing.T) {
+	str: strings.Builder
+	strings.builder_init(&str)
+	defer {
+		fmt.println(strings.to_string(str))
+		strings.builder_destroy(&str)
+	}
+
+	{
+		name := "materials once"
+		options := &time.Benchmark_Options{
+			rounds   = 1,
+			setup    = nil,
+			bench    = bench_materials,
+			teardown = nil,
+		}
+		time.benchmark(options)
+		benchmark_print(&str, name, options)
+	}
+
+}
+
+@(test)
 benchmark_materials :: proc(t: ^testing.T) {
 	str: strings.Builder
-	strings.builder_init(&str, context.allocator)
+	strings.builder_init(&str)
 	defer {
 		fmt.println(strings.to_string(str))
 		strings.builder_destroy(&str)
@@ -72,14 +95,14 @@ benchmark_materials :: proc(t: ^testing.T) {
 			bench    = bench_materials,
 			teardown = nil,
 		}
-		time.benchmark(options, context.allocator)
+		time.benchmark(options)
 		benchmark_print(&str, name, options)
 	}
 
 }
 
 benchmark_print :: proc(str: ^strings.Builder, name: string, options: ^time.Benchmark_Options, loc := #caller_location) {
-	fmt.sbprintfln(str, "[%v] %v rounds, %v bytes processed in %v ns\n\t\t%5.3f rounds/s, %5.3f MiB/s\n",
+	fmt.sbprintfln(str, "[%v] %v rounds, %v bytes processed in %v ns, %5.3f rounds/s, %5.3f MiB/s\n",
 		name,
 		options.rounds,
 		options.processed,
