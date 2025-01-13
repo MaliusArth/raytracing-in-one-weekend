@@ -439,7 +439,6 @@ camera :: struct {
 	focal_length : f64,
 	aspect_ratio : f64,
 	image_size : vec2,
-	viewport_size : vec2,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
 	vfov : turns,
@@ -455,7 +454,6 @@ camera_init :: proc(
 	focal_length : f64 = 1.0,
 	target_aspect_ratio : f64 = 1.0,
 	image_width : i64 = 100,
-	// viewport : vec2,
 	samples_per_pixel : i64 = 10,
 	max_ray_bounces : i64 = 10,
 	vfov : turns = 0.25, // 1/4 turn
@@ -473,34 +471,35 @@ camera_init :: proc(
 	// adjust ratio in case height had to be overwritten to 1
 	camera.aspect_ratio = camera.image_size.x / camera.image_size.y
 
-	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
-	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
-	unit_height := 2 * math.tan(turns_to_radians(vfov / 2))
-	viewport_height := focal_length * unit_height
-	viewport_width  := viewport_height * camera.aspect_ratio
-	camera.viewport_size = {viewport_width, viewport_height}
-
 	camera.samples_per_pixel = samples_per_pixel
 	camera.max_ray_bounces = max_ray_bounces
+	camera.vfov = vfov
 }
 
 render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $print_progress : bool) {
+	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
+	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
+	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
+	view_plane_half_size: v2
+	view_plane_half_size.y = camera.focal_length * math.tan(turns_to_radians(camera.vfov * 0.5))
+	view_plane_half_size.x = view_plane_half_size.y * camera.aspect_ratio
+
 	// view-space
-	pixel_deltas_vs := camera.viewport_size / camera.image_size * vec2{1, -1} // vertical flip
+	pixel_deltas_vs := view_plane_half_size * 2 / camera.image_size * {1.0, -1.0} // vertical flip
 
 	// world-space
 	pixel_delta_u := camera.right * pixel_deltas_vs.x
 	pixel_delta_v := camera.up    * pixel_deltas_vs.y
 
 	// view-space
-	view_plane_top_left_pixel_center := camera.viewport_size * 0.5 * vec2{-1, 1} + pixel_deltas_vs * 0.5
+	view_plane_top_left_pixel_center_vs := view_plane_half_size * {-1.0, 1.0} + pixel_deltas_vs * 0.5
 
 	// world-space
-	view_plane_top_left_pixel_center_ws :=
+	view_plane_top_left_pixel_center :=
 		camera.position +
 		camera.forward  * camera.focal_length +
-		camera.right    * view_plane_top_left_pixel_center.x +
-		camera.up       * view_plane_top_left_pixel_center.y
+		camera.right    * view_plane_top_left_pixel_center_vs.x +
+		camera.up       * view_plane_top_left_pixel_center_vs.y
 
 	image_width  := cast(int)camera.image_size.x
 	image_height := cast(int)camera.image_size.y
@@ -512,7 +511,7 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 			for _ in 0..<camera.samples_per_pixel {
 				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample :=
-					view_plane_top_left_pixel_center_ws +
+					view_plane_top_left_pixel_center +
 					pixel_delta_u * (cast(f64)u + offset.x) +
 					pixel_delta_v * (cast(f64)v + offset.y)
 
