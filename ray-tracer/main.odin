@@ -260,7 +260,8 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	// math.saturate/math.clamp [0..1]
 	cos_theta  = math.min(cos_theta, 1.0)
 	// assert(cos_theta >= 0.0)
-	sin_theta := math.sqrt(1.0-cos_theta*cos_theta)
+	sin_theta_squared := 1.0-cos_theta*cos_theta
+	// sin_theta := math.sqrt(sin_theta_squared)
 
 	reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
 		n1 := src_refractive_index
@@ -301,7 +302,8 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	// it is completely reflected inside the internal medium.
 
 	// determine if angle is beyond critical angle for total internal reflection
-	must_reflect := (rel_refractive_index * sin_theta) > 1.0
+	must_reflect := (rel_refractive_index*rel_refractive_index * sin_theta_squared) > 1.0
+	// must_reflect := (rel_refractive_index * sin_theta) > 1.0
 	output_direction: vec3
 
 	if must_reflect || reflectance(cos_theta, rel_refractive_index) > rand.float64() {
