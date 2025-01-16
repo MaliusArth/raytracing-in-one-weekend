@@ -78,6 +78,41 @@ reflect :: proc(vec, normal: vec3) -> vec3 {
 	return vec-2*dot(vec, normal)*normal
 }
 
+reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
+	n1 := src_refractive_index
+	n2 := dst_refractive_index
+
+	x := (n1 / n2) * sin_i
+	x *= x
+	x_invpow := 1.0 - x
+	subexp := math.sqrt(x_invpow)
+
+	x1  := n1 * cos_i
+	x2  := n2 * subexp
+	R_s := (x1 - x2)
+	R_s /= (x1 + x2)
+	R_s *= R_s
+
+	x1   = n1 * subexp
+	x2   = n2 * cos_i
+	R_p := (x1 - x2)
+	R_p /= (x1 + x2)
+	R_p *= R_p
+
+	return (R_s + R_p) * 0.5 // avg
+}
+
+reflectance_schlicks_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
+	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
+	r0 *= r0
+
+	a := 1.0 - cos_i
+	a = math.pow(a, 5)
+	return math.lerp(a, 1.0, r0)
+	// return r0 + (1.0 - r0) * a*a*a*a*a
+}
+reflectance :: proc{reflectance_schlicks_approximation, reflectance_fresnel}
+
 // * src_refractive_index: refractive index of the medium the light is exiting, aka. incident refractive index
 // * dst_refractive_index: refractive index of the medium the light is entering, aka. transmitted refractive index
 refract_with_reference_medium :: proc(vec, normal: vec3, src_refractive_index, dst_refractive_index: f64) -> vec3 {
@@ -262,40 +297,6 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	// assert(cos_theta >= 0.0)
 	sin_theta_squared := 1.0-cos_theta*cos_theta
 	// sin_theta := math.sqrt(sin_theta_squared)
-
-	reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
-		n1 := src_refractive_index
-		n2 := dst_refractive_index
-
-		x := (n1 / n2) * sin_i
-		x *= x
-		x_invpow := 1.0 - x
-		subexp := math.sqrt(x_invpow)
-
-		x1  := n1 * cos_i
-		x2  := n2 * subexp
-		R_s := (x1 - x2)
-		R_s /= (x1 + x2)
-		R_s *= R_s
-
-		x1   = n1 * subexp
-		x2   = n2 * cos_i
-		R_p := (x1 - x2)
-		R_p /= (x1 + x2)
-		R_p *= R_p
-
-		return (R_s + R_p) * 0.5 // avg
-	}
-
-	reflectance_schlicks_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
-		r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
-		r0 *= r0
-
-		a := 1.0 - cos_i
-		a = math.pow(a, 5)
-		return math.lerp(a, 1.0, r0)
-	}
-	reflectance :: proc{reflectance_schlicks_approximation, reflectance_fresnel}
 
 	// NOTE: total internal reflection:
 	// When a ray interfaces with the surface of a less dense external medium at an angle beyond a certain critical angle
