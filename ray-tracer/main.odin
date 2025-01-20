@@ -429,7 +429,7 @@ background_color :: proc(r: ^ray) -> color {
 	return math.lerp(a, b, t)
 }
 
-ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
+ray_cast :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 	// < 0 NOT <= 0 or do it in the if below
 	// if bounces < 0 do return color{0,0,0}
 
@@ -452,7 +452,7 @@ ray_color :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 			output_color = {0,0,0}
 		} else {
 			if reflected_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
-				output_color = attenuation * ray_color(&reflected_ray, bounces-1, spheres)
+				output_color = attenuation * ray_cast(&reflected_ray, bounces-1, spheres)
 			} else {
 				output_color = {0,0,0}
 			}
@@ -579,7 +579,7 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 
 				ray_direction := pixel_sample - camera.position
 				r := ray{camera.position, ray_direction}
-				pixel_color += ray_color(&r, camera.max_ray_bounces, spheres)
+				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres)
 			}
 			write_color(str, pixel_sample_contribution_scale * pixel_color)
 		}
