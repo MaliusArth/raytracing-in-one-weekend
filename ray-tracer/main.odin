@@ -78,40 +78,75 @@ reflect :: proc(vec, normal: vec3) -> vec3 {
 	return vec-2*dot(vec, normal)*normal
 }
 
+// cite: Ray Tracing Gems II (pp.109-114): Majercik, Zander. (2021). The Schlick Fresnel Approximation. 10.1007/978-1-4842-7185-8_9.
+// ref: https://www.researchgate.net/publication/354065225_The_Schlick_Fresnel_Approximation
 reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
 	n1 := src_refractive_index
 	n2 := dst_refractive_index
 
-	x := (n1 / n2) * sin_i
-	x *= x
-	x_invpow := 1.0 - x
-	subexp := math.sqrt(x_invpow)
+	subexp := (n1 / n2) * sin_i
+	subexp  = 1.0 - subexp * subexp
+	subexp  = math.sqrt(subexp)
+	// assert(!math.is_nan(subexp))
 
+	// parallel polarization
 	x1  := n1 * cos_i
 	x2  := n2 * subexp
 	R_s := (x1 - x2)
 	R_s /= (x1 + x2)
 	R_s *= R_s
 
+	// perpendicular polarization
 	x1   = n1 * subexp
 	x2   = n2 * cos_i
 	R_p := (x1 - x2)
 	R_p /= (x1 + x2)
 	R_p *= R_p
 
-	return (R_s + R_p) * 0.5 // avg
+	// we ignore light polarization and average the equations
+	return (R_s + R_p) * 0.5
 }
 
-reflectance_schlicks_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
+// cite: Schlick, C. An inexpensive BRDF model for physically-based rendering.
+// ref: https://onlinelibrary.wiley.com/doi/10.1111/1467-8659.1330233
+reflectance_schlick_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
+	// calculate reflectance at normal incidence
 	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
 	r0 *= r0
 
-	a := 1.0 - cos_i
-	a = math.pow(a, 5)
-	return math.lerp(a, 1.0, r0)
-	// return r0 + (1.0 - r0) * a*a*a*a*a
+	a  := 1.0 - cos_i
+	return r0 + (1.0 - r0) * a*a*a*a*a
+	// this is essentially a lerp: a^5*(1-r0) + 1.0*r0
+	// return math.lerp(a*a*a*a*a, 1.0, r0)
+	// r0 & a^5 are interchangeable since these terms are the same
+	// a^5 * 1.0 + (1.0 - a^5) * r0 == r0 * 1.0 + (1.0 - r0) * a^5
+	// so we arrive at a lerp by a function of cos_i
+	// return math.lerp(r0, 1.0, a*a*a*a*a)
 }
-reflectance :: proc{reflectance_schlicks_approximation, reflectance_fresnel}
+
+// cite: Lazányi, István & Szirmay-Kalos, László. (2005). Fresnel Term Approximations for Metals.. 77-80.
+// ref: https://www.researchgate.net/publication/221546550_Fresnel_Term_Approximations_for_Metals
+reflectance_schlick_lazanyi_approximation :: proc(cos_i, rel_refractive_index: f64, a: f64, alpha: f64) -> f64 {
+	// return reflectance_schlick_approximation(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
+	return reflectance_schlick_approximation(rel_refractive_index, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
+}
+
+// reflectance_schlick_lazanyi_approximation :: proc(r0: vec3, cos_i: float, a: vec3, alpha: float) -> f64 {
+// 	return schlickFresnel(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha);
+// }
+
+// cite: Hoffman, N. Fresnel equations considered harmful. In Eurographics Workshop on Material Appearance Modeling, pages 7–11, 2019. DOI: 10.2312/mam.20191305.
+// ref: https://diglib.eg.org/server/api/core/bitstreams/726dc384-d7dd-4c0e-8806-eadec0ff3886/content
+reflectance_hoffman_approximation :: proc(cos_i, rel_refractive_index: f64, h: f64) -> f64 {
+	// HACK(viktor): we calculate r0 twice, extract it out of the schlicks impl instead, this would also match the papers
+	// calculate reflectance at normal incidence
+	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
+	r0 *= r0
+
+	a := 823543 / 46656 * (r0 - h) + 49 / 6 * (1 - r0)
+	return reflectance_schlick_lazanyi_approximation(cos_i, rel_refractive_index, a, alpha = 6)
+}
+// reflectance :: proc{reflectance_fresnel, reflectance_schlick_approximation, reflectance_schlick_lazanyi_approximation, reflectance_hoffman_approximation}
 
 // * src_refractive_index: refractive index of the medium the light is exiting, aka. incident refractive index
 // * dst_refractive_index: refractive index of the medium the light is entering, aka. transmitted refractive index
@@ -254,7 +289,31 @@ metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 	output_direction += material.fuzz * random_unit_vector()
 	ray_out = ray{hit.p, output_direction}
 
-	attenuation = material.albedo
+	USE_METAL_FRESNEL :: #config(USE_METAL_FRESNEL, false)
+	when USE_METAL_FRESNEL {
+		cos_theta := dot(-normalize(ray_in.direction), hit.normal)
+		// math.saturate/math.clamp [0..1]
+		cos_theta  = math.min(cos_theta, 1.0)
+
+		HARDCODED_REFRACTIVE_INDEX :: 1.27035
+		// GOLD_REFRACTIVE_INDEX :: complex(cast(f64)0.27035, cast(f64)2.7790)
+		METAL_FRESNEL_KIND :: 2
+		when METAL_FRESNEL_KIND == 0 {
+			reflection_factor := reflectance_schlick_approximation(cos_theta, 1.0/HARDCODED_REFRACTIVE_INDEX)
+		} else when METAL_FRESNEL_KIND == 1 {
+			H :: 0.5
+			reflection_factor := reflectance_hoffman_approximation(cos_theta, 1.0/HARDCODED_REFRACTIVE_INDEX, H)
+		} else {
+			sin_theta_squared := 1.0-cos_theta*cos_theta
+			sin_theta := math.sqrt(sin_theta_squared)
+			reflection_factor := reflectance_fresnel(cos_theta, sin_theta, 1.0, HARDCODED_REFRACTIVE_INDEX)
+		}
+
+		// refraction_color*refraction_factor + reflection_color*reflection_factor
+		attenuation = math.lerp(material.albedo, color{1, 1, 1}, reflection_factor)
+	} else {
+		attenuation = material.albedo
+	}
 	ok = dot(output_direction, hit.normal) > 0
 	return
 }
@@ -307,7 +366,7 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	// must_reflect := (rel_refractive_index * sin_theta) > 1.0
 	output_direction: vec3
 
-	if must_reflect || reflectance(cos_theta, rel_refractive_index) > rand.float64() {
+	if must_reflect || reflectance_schlick_approximation(cos_theta, rel_refractive_index) > rand.float64() {
 		output_direction = reflect(unit_direction, hit.normal)
 	} else {
 		output_direction = refract(unit_direction, hit.normal, rel_refractive_index)
