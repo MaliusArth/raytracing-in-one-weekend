@@ -215,6 +215,17 @@ random_point_on_hemisphere :: proc(normal : vec3) -> vec3 {
 	}
 }
 
+random_point_on_disk :: proc() -> point3 {
+	// rejection sampling to ensure normal distribution
+	for {
+		p := random_vec2_range(-1, 1 + math.F64_EPSILON) // excl. max
+		length_squared := magnitude_squared(p)
+		if length_squared <= 1 {
+			return p
+		}
+	}
+}
+
 /// raycast
 
 ray :: struct {
@@ -498,7 +509,8 @@ camera :: struct {
 	right: vec3,
 	up: vec3,
 	forward: vec3,
-	focal_length : f64,
+	focus_distance: f64,
+	depth_of_field_angle: f64,
 	aspect_ratio : f64,
 	image_size : vec2,
 	samples_per_pixel : i64,
@@ -506,6 +518,7 @@ camera :: struct {
 	vfov : turns,
 }
 
+// TODO(viktor): this is error-prone and unnecessary, we only do image_size/aspect_ratio related calc which i dont like anyway, so lets drop this
 camera_init :: proc(
 	camera : ^camera,
 	position : point3 = {},
@@ -513,7 +526,8 @@ camera_init :: proc(
 	up : vec3 = {0, 1, 0},
 	forward : vec3 = {0, 0, -1},
 	// orientation : quaternion256 = {},
-	focal_length : f64 = 1.0,
+	focus_distance: f64 = 10.0,
+	depth_of_field_angle: f64 = 0.0,
 	target_aspect_ratio : f64 = 1.0,
 	image_width : i64 = 100,
 	samples_per_pixel : i64 = 10,
@@ -525,7 +539,8 @@ camera_init :: proc(
 	camera.right = right
 	camera.up = up
 	camera.forward = forward
-	camera.focal_length = focal_length
+	camera.focus_distance = focus_distance
+	camera.depth_of_field_angle = depth_of_field_angle
 
 	camera.image_size.x = cast(f64)image_width
 	camera.image_size.y = max(1, cast(f64)image_width / target_aspect_ratio)
@@ -542,8 +557,9 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
+	// we position the view plane on the focus plane
 	view_plane_half_size: v2
-	view_plane_half_size.y = camera.focal_length * math.tan(turns_to_radians(camera.vfov * 0.5))
+	view_plane_half_size.y = camera.focus_distance * math.tan(turns_to_radians(camera.vfov * 0.5))
 	view_plane_half_size.x = view_plane_half_size.y * camera.aspect_ratio
 
 	// view-space
@@ -559,9 +575,13 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 	// world-space
 	view_plane_top_left_pixel_center :=
 		camera.position +
-		camera.forward  * camera.focal_length +
+		camera.forward  * camera.focus_distance +
 		camera.right    * view_plane_top_left_pixel_center_vs.x +
 		camera.up       * view_plane_top_left_pixel_center_vs.y
+
+	dof_radius := camera.focus_distance * math.tan(turns_to_radians(camera.depth_of_field_angle*0.5))
+	dof_disk_u := camera.right * dof_radius
+	dof_disk_v := camera.up    * dof_radius
 
 	image_width  := cast(int)camera.image_size.x
 	image_height := cast(int)camera.image_size.y
@@ -574,11 +594,18 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 				offset := random_vec2_range(-0.5, 0.5)
 				pixel_sample :=
 					view_plane_top_left_pixel_center +
-					pixel_delta_u * (cast(f64)u + offset.x) +
-					pixel_delta_v * (cast(f64)v + offset.y)
+					(cast(f64)u + offset.x) * pixel_delta_u +
+					(cast(f64)v + offset.y) * pixel_delta_v
 
-				ray_direction := pixel_sample - camera.position
-				r := ray{camera.position, ray_direction}
+				ray_origin := camera.position
+				if camera.depth_of_field_angle > 0.0 {
+					dof_sample := random_point_on_disk()
+					ray_origin +=
+						(dof_sample.x * dof_disk_u) +
+						(dof_sample.y * dof_disk_v)
+				}
+				ray_direction := pixel_sample - ray_origin
+				r := ray{ray_origin, ray_direction}
 				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres)
 			}
 			write_color(str, pixel_sample_contribution_scale * pixel_color)
@@ -600,6 +627,8 @@ main :: proc () {
 		max_ray_bounces=50,
 		position={-2, 2, 1},
 		vfov=20.0/360.0,
+		focus_distance=3.4,
+		depth_of_field_angle=10.0/360.0,
 	)
 
 	// Scene
