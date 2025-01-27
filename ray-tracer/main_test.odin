@@ -11,21 +11,9 @@ bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
 	rand.create(0)
 
-	camera : camera
-	camera_init(&camera, target_aspect_ratio=16.0/9.0, image_width=400, samples_per_pixel=100, max_ray_bounces=50)
-
-	// Scene
-	ground := material{procedure=lambertian_proc, data=&lambertian_data{albedo={0.8, 0.8, 0.0}}}
-	blue   := material{procedure=lambertian_proc, data=&lambertian_data{albedo={0.1, 0.2, 0.5}}}
-	silver := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.8, 0.8}}}
-	gold   := material{procedure=metallic_proc,   data=  &metallic_data{albedo={0.8, 0.6, 0.2}}}
-
-	spheres := []sphere{
-		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
-		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
-		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&silver},
-		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
-	}
+	camera, spheres := build_dev_scene(allocator)
+	defer for sphere in spheres { free(sphere.material.data) }
+	defer delete_dynamic_array(spheres)
 
 	str: strings.Builder
 	header := fmt.aprintfln("P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
@@ -46,7 +34,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
 		strings.builder_reset(&str)
 		fmt.sbprint(&str, header)
-		render(&str, camera, spheres, false)
+		render(&str, camera, spheres[:], false)
 	}
 	// fmt.eprintln("\rDone.       ")
 
