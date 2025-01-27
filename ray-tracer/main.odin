@@ -507,52 +507,17 @@ sphere :: struct {
 
 camera :: struct {
 	position : point3,
-	// orientation : quaternion256,
 	right: vec3,
 	up: vec3,
 	forward: vec3,
-	focus_distance: f64,
-	depth_of_field_angle: f64,
+	// orientation : quaternion256,
 	aspect_ratio : f64,
 	image_size : vec2,
+	focus_distance: f64,
+	vfov : turns,
+	depth_of_field_angle: turns,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
-	vfov : turns,
-}
-
-// TODO(viktor): this is error-prone and unnecessary, we only do image_size/aspect_ratio related calc which i dont like anyway, so lets drop this
-camera_init :: proc(
-	camera : ^camera,
-	position : point3 = {},
-	right : vec3 = {1, 0, 0},
-	up : vec3 = {0, 1, 0},
-	forward : vec3 = {0, 0, -1},
-	// orientation : quaternion256 = {},
-	focus_distance: f64 = 10.0,
-	depth_of_field_angle: f64 = 0.0,
-	target_aspect_ratio : f64 = 1.0,
-	image_width : i64 = 100,
-	samples_per_pixel : i64 = 10,
-	max_ray_bounces : i64 = 10,
-	vfov : turns = 0.25, // 1/4 turn
-) {
-	camera.position = position
-	// camera.orientation = orientation
-	camera.right = right
-	camera.up = up
-	camera.forward = forward
-	camera.focus_distance = focus_distance
-	camera.depth_of_field_angle = depth_of_field_angle
-
-	camera.image_size.x = cast(f64)image_width
-	camera.image_size.y = max(1, cast(f64)image_width / target_aspect_ratio)
-	// TODO(viktor): instead of adjusting the ratio, adjust width?
-	// adjust ratio in case height had to be overwritten to 1
-	camera.aspect_ratio = camera.image_size.x / camera.image_size.y
-
-	camera.samples_per_pixel = samples_per_pixel
-	camera.max_ray_bounces = max_ray_bounces
-	camera.vfov = vfov
 }
 
 render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $print_progress : bool) {
@@ -653,18 +618,16 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sph
 	// forward_ball.center *= 0.1
 
 	camera: camera
-	camera_init(
-		&camera,
-		target_aspect_ratio=16.0/9.0,
-		image_width=400,
-		samples_per_pixel=100,
-		max_ray_bounces=50,
-		position={-2, 2, 1},
-		vfov=20.0/360.0,
-		focus_distance=3.4,
-		depth_of_field_angle=10.0/360.0,
-	)
+	camera.position = {-2, 2, 1}
 	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
+	camera.aspect_ratio = 16.0/9.0
+	camera.image_size.x = 400
+	camera.image_size.y = camera.image_size.x/camera.aspect_ratio
+	camera.focus_distance = 3.4
+	camera.vfov = 20.0/360.0
+	camera.depth_of_field_angle = 10.0/360.0
+	camera.samples_per_pixel = 100
+	camera.max_ray_bounces = 50
 
 	return camera, spheres
 }
