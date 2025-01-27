@@ -632,11 +632,55 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sph
 	return camera, spheres
 }
 
+build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sphere) {
+	spheres := make_dynamic_array([dynamic]sphere, allocator)
+	append(&spheres, sphere{center={ 0.0, -1000, 0}, radius=1000, material=material_make_lambertian({0.5, 0.5, 0.5}, allocator)})
+	append(&spheres, sphere{center={   0,     1, 0}, radius= 1.0, material=material_make_dielectric(1.5, allocator)})
+	append(&spheres, sphere{center={  -4,     1, 0}, radius= 1.0, material=material_make_lambertian({0.4, 0.2, 0.1}, allocator)})
+	append(&spheres, sphere{center={   4,     1, 0}, radius= 1.0, material=material_make_metallic({0.7, 0.6, 0.5}, 0.0, allocator)})
+
+	for a in -11..<11 {
+		for b in -11..<11 {
+			center := point3{cast(f64)a + 0.9 * rand.float64(), 0.2, cast(f64)b + 0.9 * rand.float64()}
+
+			if magnitude(center - point3{4, 0.2, 0}) > 0.9 {
+				choose_mat := rand.float64()
+				if choose_mat < 0.8 {
+					// diffuse
+					albedo := random_vec3()*random_vec3()
+					append(&spheres, sphere{center=center, radius=0.2, material=material_make_lambertian(albedo, allocator)})
+				} else if choose_mat < 0.95 {
+					// metal
+					albedo := random_vec3_range(0.5, 1)
+					fuzz := rand.float64_range(0, 0.5)
+					append(&spheres, sphere{center=center, radius=0.2, material=material_make_metallic(albedo, fuzz, allocator)})
+				} else {
+					append(&spheres, sphere{center=center, radius=0.2, material=material_make_dielectric(1.5, allocator)})
+				}
+			}
+		}
+	}
+
+	camera: camera
+	camera.position = {13, 2, 3}
+	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, 0}, axis_up={0, 1, 0})
+	camera.aspect_ratio = 16.0/9.0
+	camera.image_size.x = 1200
+	camera.image_size.y = camera.image_size.x/camera.aspect_ratio
+	camera.focus_distance = 10
+	camera.vfov = 20.0/360.0
+	camera.depth_of_field_angle = 0.6/360.0
+	camera.samples_per_pixel = 500
+	camera.max_ray_bounces = 50
+
+	return camera, spheres
+}
+
 main :: proc () {
 	rand.reset(1)
 
 	// Scene
-	camera, spheres := build_dev_scene(context.allocator)
+	camera, spheres := build_final_scene(context.allocator)
 	defer for sphere in spheres { free(sphere.material.data) }
 	defer delete_dynamic_array(spheres)
 
