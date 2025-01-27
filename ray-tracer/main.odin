@@ -245,12 +245,7 @@ lambertian_data :: struct {
 }
 
 lambertian_data_init :: proc(data : ^lambertian_data, albedo : color) {
-	data^ = {albedo}
-}
-
-lambertian_data_make :: proc(albedo : color) -> (result : lambertian_data) {
-	lambertian_data_init(&result, albedo)
-	return
+	data^ = {albedo=albedo}
 }
 
 // ![](https://raytracing.github.io/images/fig-1.14-rand-unitvec.jpg|width=200)
@@ -284,12 +279,9 @@ metallic_data :: struct {
 }
 
 metallic_data_init :: proc(data: ^metallic_data, albedo: color, fuzz: f64) {
-	data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
-}
-
-metallic_data_make :: proc(albedo: color, fuzz: f64) -> (result: metallic_data) {
-	metallic_data_init(&result, albedo, fuzz)
-	return
+	assert(0 <= fuzz && fuzz <= 1.0)
+	data^ = {albedo=albedo, fuzz=fuzz}
+	// data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
 }
 
 // ![](https://raytracing.github.io/images/fig-1.16-reflect-fuzzy.jpg|width=200)
@@ -333,13 +325,8 @@ dielectric_data :: struct {
 	refractive_index: f64,
 }
 
-dielectric_data_init :: proc(data: ^dielectric_data, refraction_index: f64) {
-	data^ = {refraction_index}
-}
-
-dielectric_data_make :: proc(refraction_index: f64) -> (result: dielectric_data) {
-	dielectric_data_init(&result, refraction_index)
-	return
+dielectric_data_init :: proc(data: ^dielectric_data, refractive_index: f64) {
+	data^ = {refractive_index=refractive_index}
 }
 
 // ![](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
@@ -396,9 +383,24 @@ material :: struct {
 	data : rawptr,
 }
 
-material_make_lambertian :: proc(data: ^lambertian_data) -> material { return {lambertian_proc, data} }
-material_make_metallic   :: proc(data: ^metallic_data  ) -> material { return {metallic_proc,   data} }
-material_make_dielectric :: proc(data: ^dielectric_data) -> material { return {dielectric_proc, data} }
+material_make_lambertian :: proc(albedo: color, allocator := context.allocator) -> material {
+	data := new(lambertian_data, allocator)
+	lambertian_data_init(data, albedo)
+	return {lambertian_proc, data}
+}
+
+material_make_metallic :: proc(albedo: color, fuzz: f64, allocator := context.allocator) -> material {
+	data := new(metallic_data, allocator)
+	metallic_data_init(data, albedo, fuzz)
+	return {metallic_proc, data}
+}
+
+material_make_dielectric :: proc(refractive_index: f64, allocator := context.allocator) -> material {
+	data := new(dielectric_data, allocator)
+	dielectric_data_init(data, refractive_index)
+	return {dielectric_proc, data}
+}
+
 material_make :: proc {
 	material_make_lambertian,
 	material_make_metallic,
@@ -446,7 +448,7 @@ ray_cast :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 
 	// raycast
 	closest_hit := hit_record{t=math.F64_MAX}
-	material : ^material
+	material : material
 	RAY_OFFSET :: 0.001 // prevent shadow acne
 	for &sphere in spheres {
 		if hit, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {RAY_OFFSET, closest_hit.t}); ok {
@@ -500,7 +502,7 @@ write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
 sphere :: struct {
 	center : vec3,
 	radius : f64,
-	material : ^material,
+	material : material,
 }
 
 camera :: struct {
@@ -615,46 +617,29 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
-main :: proc () {
-	rand.reset(seed=1)
+build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sphere) {
+	spheres := make_dynamic_array([dynamic]sphere, allocator)
+	ground     := material_make_lambertian({0.8, 0.8, 0.0}, allocator)
+	blue       := material_make_lambertian({0.1, 0.2, 0.5}, allocator)
+	// silver     := material_make_metallic({0.8, 0.8, 0.8}, 0.3, allocator)
+	glass      := material_make_dielectric(1.5, allocator)
+	air_bubble := material_make_dielectric(1.0/1.5, allocator)
+	gold       := material_make_metallic({0.8, 0.6, 0.2}, 1.0, allocator)
 
-	camera : camera
-	camera_init(
-		&camera,
-		target_aspect_ratio=16.0/9.0,
-		image_width=400,
-		samples_per_pixel=100,
-		max_ray_bounces=50,
-		position={-2, 2, 1},
-		vfov=20.0/360.0,
-		focus_distance=3.4,
-		depth_of_field_angle=10.0/360.0,
-	)
+	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material=ground})
+	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material=blue})
+	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material=glass})
+	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.4, material=air_bubble})
+	append(&spheres, sphere{center={ 1.0,    0.0, -1.0}, radius=0.5, material=gold})
 
-	// Scene
-	ground := material_make(&lambertian_data{albedo={0.8, 0.8, 0.0}})
-	blue   := material_make(&lambertian_data{albedo={0.1, 0.2, 0.5}})
-	// silver := material_make(  &metallic_data{albedo={0.8, 0.8, 0.8}, fuzz=0.3})
-	gold   := material_make(  &metallic_data{albedo={0.8, 0.6, 0.2}, fuzz=1.0})
-	glass  := material_make(&dielectric_data{refractive_index=1.5})
-	air_bubble := material_make(&dielectric_data{refractive_index=1.0/1.5})
+	// black  := material_make_lambertian(albedo={0.1, 0.1, 0.1})
+	// red    := material_make_lambertian(albedo={0.5, 0.2, 0.1})
+	// green  := material_make_lambertian(albedo={0.2, 0.5, 0.1})
 
-	// black  := material_make(&lambertian_data{albedo={0.1, 0.1, 0.1}})
-	// red    := material_make(&lambertian_data{albedo={0.5, 0.2, 0.1}})
-	// green  := material_make(&lambertian_data{albedo={0.2, 0.5, 0.1}})
-
-	spheres := []sphere{
-		{center={ 0.0, -100.5, -1.0}, radius=100, material=&ground},
-		{center={ 0.0,    0.0, -1.2}, radius=0.5, material=&blue},
-		{center={-1.0,    0.0, -1.0}, radius=0.5, material=&glass},
-		{center={-1.0,    0.0, -1.0}, radius=0.4, material=&air_bubble},
-		{center={ 1.0,    0.0, -1.0}, radius=0.5, material=&gold},
-
-		// {center={ 0.0,    0.0,  0.0}, radius=0.1,  material=&black},
-		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&red},
-		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&green},
-		// {center={ 0.0,    0.0,  0.0}, radius=0.05, material=&blue},
-	}
+	// append(&spheres, sphere{center={ 0.0,    0.0,  0.0}, radius=0.1,  material=black})
+	// append(&spheres, sphere{center={ 0.0,    0.0,  0.0}, radius=0.05, material=red})
+	// append(&spheres, sphere{center={ 0.0,    0.0,  0.0}, radius=0.05, material=green})
+	// append(&spheres, sphere{center={ 0.0,    0.0,  0.0}, radius=0.05, material=blue})
 
 	// black_ball   := &spheres[5]
 	// right_ball   := &spheres[6]
@@ -666,7 +651,31 @@ main :: proc () {
 	// right_ball.center *= 0.1
 	// up_ball.center *= 0.1
 	// forward_ball.center *= 0.1
+
+	camera: camera
+	camera_init(
+		&camera,
+		target_aspect_ratio=16.0/9.0,
+		image_width=400,
+		samples_per_pixel=100,
+		max_ray_bounces=50,
+		position={-2, 2, 1},
+		vfov=20.0/360.0,
+		focus_distance=3.4,
+		depth_of_field_angle=10.0/360.0,
+	)
 	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
+
+	return camera, spheres
+}
+
+main :: proc () {
+	rand.reset(1)
+
+	// Scene
+	camera, spheres := build_dev_scene(context.allocator)
+	defer for sphere in spheres { free(sphere.material.data) }
+	defer delete_dynamic_array(spheres)
 
 	str: strings.Builder
 	header := fmt.aprintfln("P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
@@ -675,7 +684,7 @@ main :: proc () {
 	fmt.sbprint(&str, header)
 	defer strings.builder_destroy(&str)
 
-	render(&str, camera, spheres, true)
+	render(&str, camera, spheres[:], true)
 
 	fmt.fprint(os.stdout, strings.to_string(str))
 }
