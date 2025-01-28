@@ -107,13 +107,15 @@ reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_i
 	return (R_s + R_p) * 0.5
 }
 
-// cite: Schlick, C. An inexpensive BRDF model for physically-based rendering.
-// ref: https://onlinelibrary.wiley.com/doi/10.1111/1467-8659.1330233
-reflectance_schlick_approximation :: proc(cos_i, rel_refractive_index: f64) -> f64 {
-	// calculate reflectance at normal incidence
+reflectance_at_normal_incidence :: proc(rel_refractive_index: f64) -> f64 {
 	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
 	r0 *= r0
+	return r0
+}
 
+// cite: Schlick, C. An inexpensive BRDF model for physically-based rendering.
+// ref: https://onlinelibrary.wiley.com/doi/10.1111/1467-8659.1330233
+reflectance_schlick_approximation :: proc(cos_i, r0: f64) -> f64 {
 	a  := 1.0 - cos_i
 	return r0 + (1.0 - r0) * a*a*a*a*a
 	// this is essentially a lerp: a^5*(1-r0) + 1.0*r0
@@ -126,27 +128,19 @@ reflectance_schlick_approximation :: proc(cos_i, rel_refractive_index: f64) -> f
 
 // cite: Lazányi, István & Szirmay-Kalos, László. (2005). Fresnel Term Approximations for Metals.. 77-80.
 // ref: https://www.researchgate.net/publication/221546550_Fresnel_Term_Approximations_for_Metals
-reflectance_schlick_lazanyi_approximation :: proc(cos_i, rel_refractive_index: f64, a: f64, alpha: f64) -> f64 {
-	// return reflectance_schlick_approximation(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
-	return reflectance_schlick_approximation(rel_refractive_index, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
+reflectance_schlick_lazanyi_approximation :: proc(cos_i, r0: f64, a: f64, alpha: f64) -> f64 {
+	return reflectance_schlick_approximation(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
 }
-
 // reflectance_schlick_lazanyi_approximation :: proc(r0: vec3, cos_i: float, a: vec3, alpha: float) -> f64 {
 // 	return schlickFresnel(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha);
 // }
 
 // cite: Hoffman, N. Fresnel equations considered harmful. In Eurographics Workshop on Material Appearance Modeling, pages 7–11, 2019. DOI: 10.2312/mam.20191305.
 // ref: https://diglib.eg.org/server/api/core/bitstreams/726dc384-d7dd-4c0e-8806-eadec0ff3886/content
-reflectance_hoffman_approximation :: proc(cos_i, rel_refractive_index: f64, h: f64) -> f64 {
-	// HACK(viktor): we calculate r0 twice, extract it out of the schlicks impl instead, this would also match the papers
-	// calculate reflectance at normal incidence
-	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
-	r0 *= r0
-
+reflectance_hoffman_approximation :: proc(cos_i, r0, h: f64) -> f64 {
 	a := 823543 / 46656 * (r0 - h) + 49 / 6 * (1 - r0)
-	return reflectance_schlick_lazanyi_approximation(cos_i, rel_refractive_index, a, alpha = 6)
+	return reflectance_schlick_lazanyi_approximation(cos_i, r0, a, alpha = 6)
 }
-// reflectance :: proc{reflectance_fresnel, reflectance_schlick_approximation, reflectance_schlick_lazanyi_approximation, reflectance_hoffman_approximation}
 
 // * src_refractive_index: refractive index of the medium the light is exiting, aka. incident refractive index
 // * dst_refractive_index: refractive index of the medium the light is entering, aka. transmitted refractive index
@@ -302,10 +296,12 @@ metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 		// GOLD_REFRACTIVE_INDEX :: complex(cast(f64)0.27035, cast(f64)2.7790)
 		METAL_FRESNEL_KIND :: 2
 		when METAL_FRESNEL_KIND == 0 {
-			reflection_factor := reflectance_schlick_approximation(cos_theta, 1.0/HARDCODED_REFRACTIVE_INDEX)
+			r0 := reflectance_at_normal_incidence(1.0/HARDCODED_REFRACTIVE_INDEX)
+			reflection_factor := reflectance_schlick_approximation(cos_theta, r0)
 		} else when METAL_FRESNEL_KIND == 1 {
 			H :: 0.5
-			reflection_factor := reflectance_hoffman_approximation(cos_theta, 1.0/HARDCODED_REFRACTIVE_INDEX, H)
+			r0 := reflectance_at_normal_incidence(1.0/HARDCODED_REFRACTIVE_INDEX)
+			reflection_factor := reflectance_hoffman_approximation(cos_theta, r0, H)
 		} else {
 			sin_theta_squared := 1.0-cos_theta*cos_theta
 			sin_theta := math.sqrt(sin_theta_squared)
@@ -364,7 +360,7 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	// must_reflect := (rel_refractive_index * sin_theta) > 1.0
 	output_direction: vec3
 
-	if must_reflect || reflectance_schlick_approximation(cos_theta, rel_refractive_index) > rand.float64() {
+	if must_reflect || reflectance_schlick_approximation(cos_theta, reflectance_at_normal_incidence(rel_refractive_index)) > rand.float64() {
 		output_direction = reflect(unit_direction, hit.normal)
 	} else {
 		output_direction = refract(unit_direction, hit.normal, rel_refractive_index)
