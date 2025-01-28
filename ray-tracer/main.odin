@@ -234,6 +234,35 @@ hit_record :: struct {
 	front_face : bool,
 }
 
+hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
+                                       (record: hit_record, ok: bool) {
+	o_c := center^ - r.origin
+	a := magnitude_squared(r.direction)
+	h := dot(r.direction, o_c)
+	c := magnitude_squared(o_c) - radius*radius
+	discriminant := h*h - a*c
+	if discriminant < 0 do return
+
+	sqrtd := math.sqrt(discriminant)
+
+	// Find the nearest root that lies in the acceptable range
+	root := (h - sqrtd) / a
+	if root < t_range.min || t_range.max < root {
+		root = (h + sqrtd) / a
+		if root < t_range.min || t_range.max < root do return
+	}
+
+	record.t = root
+	record.p = r.origin + root*r.direction
+	record.normal = (record.p - center^) / radius
+	record.front_face = dot(r.direction, record.normal) < 0
+	record.normal = record.front_face ? record.normal : -record.normal
+
+	return record, true
+}
+
+/// materials
+
 lambertian_data :: struct {
 	albedo : color,
 }
@@ -401,33 +430,6 @@ material_make :: proc {
 	material_make_lambertian,
 	material_make_metallic,
 	material_make_dielectric,
-}
-
-hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
-                                       (record: hit_record, ok: bool) {
-	o_c := center^ - r.origin
-	a := magnitude_squared(r.direction)
-	h := dot(r.direction, o_c)
-	c := magnitude_squared(o_c) - radius*radius
-	discriminant := h*h - a*c
-	if discriminant < 0 do return
-
-	sqrtd := math.sqrt(discriminant)
-
-	// Find the nearest root that lies in the acceptable range
-	root := (h - sqrtd) / a
-	if root < t_range.min || t_range.max < root {
-		root = (h + sqrtd) / a
-		if root < t_range.min || t_range.max < root do return
-	}
-
-	record.t = root
-	record.p = r.origin + root*r.direction
-	record.normal = (record.p - center^) / radius
-	record.front_face = dot(r.direction, record.normal) < 0
-	record.normal = record.front_face ? record.normal : -record.normal
-
-	return record, true
 }
 
 background_color :: proc(r: ^ray) -> color {
