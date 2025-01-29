@@ -478,12 +478,11 @@ ray_cast :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 
 ///
 
-linear_to_gamma2 :: proc(linear_component : f64) -> f64 {
-	return linear_component > 0.0 ? math.sqrt(linear_component) : 0.0
-}
-
 write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
-	// Apply a linear to gamma transform for gamma 2
+	linear_to_gamma2 :: proc(linear_component : f64) -> f64 {
+		return linear_component > 0.0 ? math.sqrt(linear_component) : 0.0
+	}
+
 	r := linear_to_gamma2(pixel_color.r)
 	g := linear_to_gamma2(pixel_color.g)
 	b := linear_to_gamma2(pixel_color.b)
