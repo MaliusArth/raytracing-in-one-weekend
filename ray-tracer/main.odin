@@ -440,9 +440,9 @@ background_color :: proc(r: ^ray) -> color {
 	return math.lerp(a, b, t)
 }
 
-ray_cast :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
+ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 	// < 0 NOT <= 0 or do it in the if below
-	// if bounces < 0 do return color{0,0,0}
+	// if max_ray_bounces < 0 do return color{0,0,0}
 
 	// raycast
 	closest_hit := hit_record{t=math.F64_MAX}
@@ -459,11 +459,11 @@ ray_cast :: proc(r: ^ray, bounces : i64, spheres : []sphere) -> color {
 
 	output_color : color
 	if closest_hit.t < math.F64_MAX {
-		if bounces <= 0 { // don't recurse
+		if max_ray_bounces <= 0 { // don't recurse
 			output_color = {0,0,0}
 		} else {
 			if reflected_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
-				output_color = attenuation * ray_cast(&reflected_ray, bounces-1, spheres)
+				output_color = attenuation * ray_cast(&reflected_ray, max_ray_bounces-1, spheres)
 			} else {
 				output_color = {0,0,0}
 			}
