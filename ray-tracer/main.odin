@@ -479,19 +479,17 @@ ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 ///
 
 write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
-	linear_to_gamma2 :: proc(linear_component : f64) -> f64 {
-		return linear_component > 0.0 ? math.sqrt(linear_component) : 0.0
-	}
+	// we expect color values to be in [0,1]
 
-	r := linear_to_gamma2(pixel_color.r)
-	g := linear_to_gamma2(pixel_color.g)
-	b := linear_to_gamma2(pixel_color.b)
+	// linear to gamma2 color correction
+	r := math.sqrt(pixel_color.r)
+	g := math.sqrt(pixel_color.g)
+	b := math.sqrt(pixel_color.b)
 
-	// Translate the [0,1] component values to the byte range [0,255].
-	intensity :: vec2{0.000, 0.999}
-	ir := i32(256 * clamp(r, intensity.x, intensity.y))
-	ig := i32(256 * clamp(g, intensity.x, intensity.y))
-	ib := i32(256 * clamp(b, intensity.x, intensity.y))
+	// Quantize float values of [0,1] to byte range [0,255].
+	ir := u8(256 * math.min(r, 0.999))
+	ig := u8(256 * math.min(g, 0.999))
+	ib := u8(256 * math.min(b, 0.999))
 
 	fmt.sbprintfln(dst, "%v %v %v", ir, ig, ib)
 }
