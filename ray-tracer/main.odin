@@ -278,12 +278,11 @@ lambertian_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 	//  * or it can sometimes scatter (with probability 1−R) with no attenuation (where a ray that isn't scattered is just absorbed into the material).
 	// It could also be a mixture of both those strategies. We will choose to always scatter
 
-	// normal_offset :: 1.001
-	output_direction := hit.normal /* * normal_offset */ + random_unit_vector()
-	// TODO(viktor): can't we just add some epsilon to the normal? this is just shadow acne all over again
+	output_direction := hit.normal + random_unit_vector()
 	if is_near_zero(output_direction) {
 		output_direction = hit.normal
 	}
+
 	ray_out = ray{hit.p, output_direction}
 
 	material := cast(^lambertian_data)data
@@ -521,14 +520,13 @@ camera :: struct {
 	aspect_ratio : f64,
 	image_size : vec2,
 	focus_distance: f64,
-	vfov : turns,
+	vfov : turns, // using Hor+ scaling
 	depth_of_field_angle: turns,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
 }
 
 render :: proc(image: []byte, camera: camera, spheres : []sphere, $print_progress : bool) {
-	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
 	// we position the view plane on the focus plane
