@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:os"
 import "core:math"
 import "core:math/rand"
 import "core:strings"
@@ -478,7 +477,7 @@ ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 
 ///
 
-write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
+write_color :: proc (image: []byte, pixel_color: color) {
 	// we expect color values to be in [0,1]
 
 	// linear to gamma2 color correction
@@ -486,12 +485,25 @@ write_color :: proc (dst: ^strings.Builder, pixel_color: color) {
 	g := math.sqrt(pixel_color.g)
 	b := math.sqrt(pixel_color.b)
 
-	// Quantize float values of [0,1] to byte range [0,255].
+	// quantize [0.0,1.0] float values to [0,255] byte range.
 	ir := u8(256 * math.min(r, 0.999))
 	ig := u8(256 * math.min(g, 0.999))
 	ib := u8(256 * math.min(b, 0.999))
 
-	fmt.sbprintfln(dst, "%v %v %v", ir, ig, ib)
+	serialize :: proc(dst: []byte, u: u8, separator: byte) {
+		dst[0] = '0' + ((u / 100) % 10)
+		dst[1] = '0' + ((u /  10) % 10)
+		dst[2] = '0' + ( u        % 10)
+		dst[3] = separator
+
+		// replace leading zeroes
+		dst[0] = dst[0]=='0'                ? ' ' : dst[0]
+		dst[1] = dst[0]==' ' && dst[1]=='0' ? ' ' : dst[1]
+	}
+
+	serialize(image[0: 4], ir,  ' ')
+	serialize(image[4: 8], ig,  ' ')
+	serialize(image[8:12], ib, '\n')
 }
 
 sphere :: struct {
@@ -515,7 +527,7 @@ camera :: struct {
 	max_ray_bounces : i64,
 }
 
-render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $print_progress : bool) {
+render :: proc(image: []byte, camera: camera, spheres : []sphere, $print_progress : bool) {
 	// TODO(viktor): I don't like the use of vertical fov, the world is mostly horizontal, hfov is more intuitive
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
@@ -547,7 +559,7 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 
 	image_width  := cast(int)camera.image_size.x
 	image_height := cast(int)camera.image_size.y
-	pixel_sample_contribution_scale := 1.0 / f64(camera.samples_per_pixel)
+	pixel_sample_contribution_scale := 1.0 / cast(f64)camera.samples_per_pixel
 	for v in 0..<image_height {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
 		for u in 0..<image_width {
@@ -570,7 +582,8 @@ render :: proc(str : ^strings.Builder, camera : camera, spheres : []sphere, $pri
 				r := ray{ray_origin, ray_direction}
 				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres)
 			}
-			write_color(str, pixel_sample_contribution_scale * pixel_color)
+			write_offset := (u + v * image_width) * 4 * 3
+			write_color(image[write_offset:write_offset + 4 * 3], pixel_sample_contribution_scale * pixel_color)
 		}
 	}
 
@@ -675,18 +688,19 @@ main :: proc () {
 	rand.reset(1)
 
 	// Scene
-	camera, spheres := build_final_scene(context.allocator)
-	defer for sphere in spheres { free(sphere.material.data) }
-	defer delete_dynamic_array(spheres)
+	camera, spheres := build_dev_scene(context.allocator)
+	defer free_all(context.allocator)
+	// defer for sphere in spheres { free(sphere.material.data) }
+	// defer delete_dynamic_array(spheres)
 
 	str: strings.Builder
-	header := fmt.aprintfln("P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
-	defer delete_string(header)
-	strings.builder_init(&str, 0, len(header) + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 3 * 4)
-	fmt.sbprint(&str, header)
+	strings.builder_init(&str, context.allocator)
 	defer strings.builder_destroy(&str)
+	fmt.sbprintfln(&str, "P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
+	header_size := len(str.buf)
+	non_zero_resize_dynamic_array(&str.buf, header_size + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 4 * 3)
+	image := str.buf[header_size:]
+	render(image, camera, spheres[:], true)
 
-	render(&str, camera, spheres[:], true)
-
-	fmt.fprint(os.stdout, strings.to_string(str))
+	fmt.print(strings.to_string(str))
 }
