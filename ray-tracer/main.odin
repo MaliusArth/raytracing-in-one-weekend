@@ -438,6 +438,8 @@ background_color :: proc(r: ^ray) -> color {
 	return math.lerp(a, b, t)
 }
 
+TEST_RECURSIVE_RAY_CAST :: #config(TEST_RECURSIVE_RAY_CAST, 0)
+when TEST_RECURSIVE_RAY_CAST==1 {
 ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 	// < 0 NOT <= 0 or do it in the if below
 	// if max_ray_bounces < 0 do return color{0,0,0}
@@ -472,6 +474,49 @@ ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 		output_color = background_color(r)
 	}
 	return output_color
+}
+} else {
+ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
+	output_color := color{1, 1, 1}
+	reflected_ray :ray= r^
+	for bounce in 0..=max_ray_bounces {
+		// < 0 NOT <= 0 or do it in the if below
+		// if bounce == max_ray_bounces do return color{0,0,0} // absorb rays which reach
+		closest_hit := hit_record{t=math.F64_MAX}
+		material : material
+		RAY_OFFSET :: 0.001 // prevent shadow acne
+		for &sphere in spheres {
+			if hit, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &reflected_ray, {RAY_OFFSET, closest_hit.t}); ok {
+				if hit.t < closest_hit.t {
+					closest_hit = hit
+					material = sphere.material
+				}
+			}
+		}
+
+		if closest_hit.t < math.F64_MAX {
+			if bounce == max_ray_bounces {
+				output_color = {0,0,0} // absorb rays which reach max_ray_bounces
+				break
+			}
+			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
+			if material_ray, attenuation, ok := material.procedure(material.data, &reflected_ray, &closest_hit); ok {
+				reflected_ray = material_ray
+				output_color *= attenuation
+			} else {
+				output_color = {0,0,0}
+				break
+			}
+		} else {
+			// NOTE(viktor): only needs to be normalized for the background gradient
+			reflected_ray.direction = normalize(reflected_ray.direction)
+			output_color *= background_color(&reflected_ray)
+			break
+		}
+
+	}
+	return output_color
+}
 }
 
 ///
