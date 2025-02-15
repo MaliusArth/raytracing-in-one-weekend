@@ -233,12 +233,14 @@ hit_record :: struct {
 	front_face : bool,
 }
 
-hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t_range: struct{min, max: f64}) ->
-                                       (record: hit_record, ok: bool) {
-	o_c := center^ - r.origin
+ray_sphere_intersection :: #force_inline proc(
+	r: ray, sphere_center: point3, sphere_radius: f64, t_range: struct{min, max: f64} = {0, math.F64_MAX}) -> (record: hit_record) {
+	record.t = t_range.max
+
+	o_c := sphere_center - r.origin
 	a := magnitude_squared(r.direction)
 	h := dot(r.direction, o_c)
-	c := magnitude_squared(o_c) - radius*radius
+	c := magnitude_squared(o_c) - sphere_radius*sphere_radius
 	discriminant := h*h - a*c
 	if discriminant < 0 do return
 
@@ -253,11 +255,11 @@ hit_sphere_ranged :: #force_inline proc(center: ^point3, radius: f64, r: ^ray, t
 
 	record.t = root
 	record.p = r.origin + root*r.direction
-	record.normal = (record.p - center^) / radius
+	record.normal = (record.p - sphere_center) / sphere_radius
 	record.front_face = dot(r.direction, record.normal) < 0
 	record.normal = record.front_face ? record.normal : -record.normal
 
-	return record, true
+	return record
 }
 
 /// materials
@@ -440,33 +442,26 @@ background_color :: proc(r: ^ray) -> color {
 
 TEST_RECURSIVE_RAY_CAST :: #config(TEST_RECURSIVE_RAY_CAST, 0)
 when TEST_RECURSIVE_RAY_CAST==1 {
-ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
-	// < 0 NOT <= 0 or do it in the if below
-	// if max_ray_bounces < 0 do return color{0,0,0}
+ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
+	if max_ray_bounces < 0 do return color{1,1,1}
 
-	// raycast
 	closest_hit := hit_record{t=math.F64_MAX}
-	material : material
-	RAY_OFFSET :: 0.001 // prevent shadow acne
+	material: material
+	SHADOW_ACNE_RAY_OFFSET :: 0.001
 	for &sphere in spheres {
-		if hit, ok := hit_sphere_ranged(&sphere.center, sphere.radius, r, {RAY_OFFSET, closest_hit.t}); ok {
-			if hit.t < closest_hit.t {
-				closest_hit = hit
-				material = sphere.material
-			}
+		hit := ray_sphere_intersection(r^, sphere.center, sphere.radius, {SHADOW_ACNE_RAY_OFFSET, closest_hit.t})
+		if hit.t < closest_hit.t {
+			closest_hit = hit
+			material = sphere.material
 		}
 	}
 
-	output_color : color
+	output_color: color
 	if closest_hit.t < math.F64_MAX {
-		if max_ray_bounces <= 0 { // don't recurse
-			output_color = {0,0,0}
+		if scattered_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
+			output_color = attenuation * ray_cast(&scattered_ray, max_ray_bounces-1, spheres)
 		} else {
-			if reflected_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
-				output_color = attenuation * ray_cast(&reflected_ray, max_ray_bounces-1, spheres)
-			} else {
-				output_color = {0,0,0}
-			}
+			output_color = {0,0,0} // ray got absorbed
 		}
 	} else {
 		// NOTE(viktor): only needs to be normalized for the background gradient
@@ -476,32 +471,26 @@ ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 	return output_color
 }
 } else {
-ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
+ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
+	scattered_ray: ray = r^
 	output_color := color{1, 1, 1}
-	reflected_ray :ray= r^
-	for bounce in 0..=max_ray_bounces {
-		// < 0 NOT <= 0 or do it in the if below
-		// if bounce == max_ray_bounces do return color{0,0,0} // absorb rays which reach
+
+	for _ in 0..=max_ray_bounces {
 		closest_hit := hit_record{t=math.F64_MAX}
-		material : material
-		RAY_OFFSET :: 0.001 // prevent shadow acne
+		material: material
+		SHADOW_ACNE_RAY_OFFSET :: 0.001
 		for &sphere in spheres {
-			if hit, ok := hit_sphere_ranged(&sphere.center, sphere.radius, &reflected_ray, {RAY_OFFSET, closest_hit.t}); ok {
-				if hit.t < closest_hit.t {
-					closest_hit = hit
-					material = sphere.material
-				}
+			hit := ray_sphere_intersection(scattered_ray, sphere.center, sphere.radius, {SHADOW_ACNE_RAY_OFFSET, closest_hit.t})
+			if hit.t < closest_hit.t {
+				closest_hit = hit
+				material = sphere.material
 			}
 		}
 
 		if closest_hit.t < math.F64_MAX {
-			if bounce == max_ray_bounces {
-				output_color = {0,0,0} // absorb rays which reach max_ray_bounces
-				break
-			}
 			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
-			if material_ray, attenuation, ok := material.procedure(material.data, &reflected_ray, &closest_hit); ok {
-				reflected_ray = material_ray
+			if material_ray, attenuation, ok := material.procedure(material.data, &scattered_ray, &closest_hit); ok {
+				scattered_ray = material_ray
 				output_color *= attenuation
 			} else {
 				output_color = {0,0,0}
@@ -509,11 +498,10 @@ ray_cast :: proc(r: ^ray, max_ray_bounces : i64, spheres : []sphere) -> color {
 			}
 		} else {
 			// NOTE(viktor): only needs to be normalized for the background gradient
-			reflected_ray.direction = normalize(reflected_ray.direction)
-			output_color *= background_color(&reflected_ray)
+			scattered_ray.direction = normalize(scattered_ray.direction)
+			output_color *= background_color(&scattered_ray)
 			break
 		}
-
 	}
 	return output_color
 }
