@@ -20,16 +20,16 @@ vec2   :: f64x2
 turns  :: f64 // [0, 1]
 // turns :: distinct f64 // [0, 1]
 // radians :: distinct f64 // [0, math.TAU]
-turns_to_radians :: proc(θ: turns) -> f64 { return θ * math.TAU }
+turns_to_radians :: proc "contextless" (θ: turns) -> f64 { return θ * math.TAU }
 
 
 /// linalg
 
-dot :: proc(a, b: vec3) -> f64 {
+dot :: proc "contextless" (a, b: vec3) -> f64 {
 	return a.x*b.x + a.y*b.y + a.z*b.z
 }
 
-cross :: proc(a, b: vec3) -> vec3 {
+cross :: proc "contextless" (a, b: vec3) -> vec3 {
 	result: vec3
 	result[0] = a[1]*b[2] - b[1]*a[2]
 	result[1] = a[2]*b[0] - b[2]*a[0]
@@ -37,32 +37,32 @@ cross :: proc(a, b: vec3) -> vec3 {
 	return result
 }
 
-magnitude_squared :: proc(vec: vec3) -> f64 {
+magnitude_squared :: proc "contextless" (vec: vec3) -> f64 {
 	return dot(vec, vec)
 }
 
-magnitude :: proc(vec: vec3) -> f64 {
+magnitude :: proc "contextless" (vec: vec3) -> f64 {
 	return math.sqrt(magnitude_squared(vec))
 }
 
-normalize :: proc(vec: vec3) -> vec3 {
+normalize :: proc "contextless" (vec: vec3) -> vec3 {
 	return vec / magnitude(vec)
 }
 
-is_near_zero :: proc(vec: vec3) -> bool {
+is_near_zero :: proc "contextless" (vec: vec3) -> bool {
 	EPSILON :: 1e-8
 	return (math.abs(vec.x) <= EPSILON &&
 	        math.abs(vec.y) <= EPSILON &&
 	        math.abs(vec.z) <= EPSILON)
 }
 
-is_normalized :: proc(vec: vec3) -> bool {
+is_normalized :: proc "contextless" (vec: vec3) -> bool {
 	EPSILON :: 1e-10
 	mag2 := magnitude_squared(vec)
 	return 1-EPSILON <= mag2 && mag2 <= 1+EPSILON
 }
 
-lookat :: proc(position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3 = {0, 1, 0}) -> (right, up, forward: vec3) {
+lookat :: proc "contextless" (position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3 = {0, 1, 0}) -> (right, up, forward: vec3) {
 
 	// view cartesian coordinate system
 	forward = normalize(target - position)
@@ -72,14 +72,14 @@ lookat :: proc(position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3
 }
 
 // ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
-reflect :: proc(vec, normal: vec3) -> vec3 {
+reflect :: proc "contextless" (vec, normal: vec3) -> vec3 {
 	// vec & normal don't need to be normalized
 	return vec-2*dot(vec, normal)*normal
 }
 
 // cite: Ray Tracing Gems II (pp.109-114): Majercik, Zander. (2021). The Schlick Fresnel Approximation. 10.1007/978-1-4842-7185-8_9.
 // ref: https://www.researchgate.net/publication/354065225_The_Schlick_Fresnel_Approximation
-reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
+reflectance_fresnel :: proc "contextless" (cos_i, sin_i, src_refractive_index, dst_refractive_index: f64) -> f64 {
 	n1 := src_refractive_index
 	n2 := dst_refractive_index
 
@@ -106,7 +106,7 @@ reflectance_fresnel :: proc(cos_i, sin_i, src_refractive_index, dst_refractive_i
 	return (R_s + R_p) * 0.5
 }
 
-reflectance_at_normal_incidence :: proc(rel_refractive_index: f64) -> f64 {
+reflectance_at_normal_incidence :: proc "contextless" (rel_refractive_index: f64) -> f64 {
 	r0 := (1.0 - rel_refractive_index) / (1.0 + rel_refractive_index)
 	r0 *= r0
 	return r0
@@ -114,7 +114,7 @@ reflectance_at_normal_incidence :: proc(rel_refractive_index: f64) -> f64 {
 
 // cite: Schlick, C. An inexpensive BRDF model for physically-based rendering.
 // ref: https://onlinelibrary.wiley.com/doi/10.1111/1467-8659.1330233
-reflectance_schlick_approximation :: proc(cos_i, r0: f64) -> f64 {
+reflectance_schlick_approximation :: proc "contextless" (cos_i, r0: f64) -> f64 {
 	a  := 1.0 - cos_i
 	return r0 + (1.0 - r0) * a*a*a*a*a
 	// this is essentially a lerp: a^5*(1-r0) + 1.0*r0
@@ -127,7 +127,7 @@ reflectance_schlick_approximation :: proc(cos_i, r0: f64) -> f64 {
 
 // cite: Lazányi, István & Szirmay-Kalos, László. (2005). Fresnel Term Approximations for Metals.. 77-80.
 // ref: https://www.researchgate.net/publication/221546550_Fresnel_Term_Approximations_for_Metals
-reflectance_schlick_lazanyi_approximation :: proc(cos_i, r0: f64, a: f64, alpha: f64) -> f64 {
+reflectance_schlick_lazanyi_approximation :: proc "contextless" (cos_i, r0: f64, a: f64, alpha: f64) -> f64 {
 	return reflectance_schlick_approximation(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
 }
 // reflectance_schlick_lazanyi_approximation :: proc(r0: vec3, cos_i: float, a: vec3, alpha: float) -> f64 {
@@ -136,7 +136,7 @@ reflectance_schlick_lazanyi_approximation :: proc(cos_i, r0: f64, a: f64, alpha:
 
 // cite: Hoffman, N. Fresnel equations considered harmful. In Eurographics Workshop on Material Appearance Modeling, pages 7–11, 2019. DOI: 10.2312/mam.20191305.
 // ref: https://diglib.eg.org/server/api/core/bitstreams/726dc384-d7dd-4c0e-8806-eadec0ff3886/content
-reflectance_hoffman_approximation :: proc(cos_i, r0, h: f64) -> f64 {
+reflectance_hoffman_approximation :: proc "contextless" (cos_i, r0, h: f64) -> f64 {
 	a := 823543 / 46656 * (r0 - h) + 49 / 6 * (1 - r0)
 	return reflectance_schlick_lazanyi_approximation(cos_i, r0, a, alpha = 6)
 }
@@ -175,23 +175,23 @@ refract :: proc { refract_with_reference_medium, refract_with_relative_refractiv
 
 /// random
 
-random_vec3 :: proc() -> vec3 {
-	return {rand.float64(), rand.float64(), rand.float64()}
+random_vec3 :: proc(gen := context.random_generator) -> vec3 {
+	return {rand.float64(gen), rand.float64(gen), rand.float64(gen)}
 }
 
-random_vec3_range :: proc(min, max : f64) -> vec3 {
-	return {rand.float64_range(min, max), rand.float64_range(min, max), rand.float64_range(min, max)}
+random_vec3_range :: proc(min, max : f64, gen := context.random_generator) -> vec3 {
+	return {rand.float64_range(min, max, gen), rand.float64_range(min, max, gen), rand.float64_range(min, max, gen)}
 }
 
 // Returns the vector to a random point in the [min,min]-[max,max] square.
-random_vec2_range :: proc(min, max : f64) -> vec3 {
-	return {rand.float64_range(min, max), rand.float64_range(min, max), 0}
+random_vec2_range :: proc(min, max : f64, gen := context.random_generator) -> vec3 {
+	return {rand.float64_range(min, max, gen), rand.float64_range(min, max, gen), 0}
 }
 
-random_unit_vector :: proc() -> vec3 {
+random_unit_vector :: proc(gen := context.random_generator) -> vec3 {
 	// rejection sampling to ensure normal distribution
 	for {
-		p := random_vec3_range(-1, 1 + math.F64_EPSILON) // excl. max
+		p := random_vec3_range(-1, 1 + math.F64_EPSILON, gen) // excl. max
 		length_squared := magnitude_squared(p)
 		if 0 < length_squared && length_squared <= 1 {
 			return p / math.sqrt(length_squared)
@@ -199,7 +199,7 @@ random_unit_vector :: proc() -> vec3 {
 	}
 }
 
-random_point_on_hemisphere :: proc(normal : vec3) -> vec3 {
+random_point_on_hemisphere :: proc(normal: vec3, gen := context.random_generator) -> vec3 {
 	on_unit_sphere := random_unit_vector()
 	if dot(on_unit_sphere, normal) > 0.0 { // In the same hemisphere as the normal
 		return on_unit_sphere
@@ -208,7 +208,7 @@ random_point_on_hemisphere :: proc(normal : vec3) -> vec3 {
 	}
 }
 
-random_point_on_disk :: proc() -> point3 {
+random_point_on_disk :: proc(gen := context.random_generator) -> point3 {
 	// rejection sampling to ensure normal distribution
 	for {
 		p := random_vec2_range(-1, 1 + math.F64_EPSILON) // excl. max
@@ -233,7 +233,7 @@ hit_record :: struct {
 	front_face : bool,
 }
 
-ray_sphere_intersection :: #force_inline proc(
+ray_sphere_intersection :: #force_inline proc "contextless" (
 	r: ray, sphere_center: point3, sphere_radius: f64, t_range: struct{min, max: f64} = {0, math.F64_MAX}) -> (record: hit_record) {
 	record.t = t_range.max
 
@@ -268,7 +268,7 @@ lambertian_data :: struct {
 	albedo : color,
 }
 
-lambertian_data_init :: proc(data : ^lambertian_data, albedo : color) {
+lambertian_data_init :: proc "contextless" (data : ^lambertian_data, albedo : color) {
 	data^ = {albedo=albedo}
 }
 
@@ -350,7 +350,7 @@ dielectric_data :: struct {
 	refractive_index: f64,
 }
 
-dielectric_data_init :: proc(data: ^dielectric_data, refractive_index: f64) {
+dielectric_data_init :: proc "contextless" (data: ^dielectric_data, refractive_index: f64) {
 	data^ = {refractive_index=refractive_index}
 }
 
@@ -432,7 +432,7 @@ material_make :: proc {
 	material_make_dielectric,
 }
 
-background_color :: proc(r: ^ray) -> color {
+background_color :: proc "contextless" (r: ^ray) -> color {
 	// linear gradient between a and b
 	a := color{1.0, 1.0, 1.0}
 	b := color{0.5, 0.7, 1.0}
