@@ -234,6 +234,7 @@ hit_record :: struct {
 }
 
 ray_sphere_intersection :: #force_inline proc "contextless" (
+// TODO: fix inconsistent sphere & t_range member params: create anon struct for sphere?
 	r: ray, sphere_center: point3, sphere_radius: f64, t_range: struct{min, max: f64} = {0, math.F64_MAX}) -> (record: hit_record) {
 	record.t = t_range.max
 
@@ -507,43 +508,6 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
 }
 }
 
-///
-
-write_color :: proc (image: []byte, pixel_color: color) {
-	// we expect color values to be in [0,1]
-
-	// linear to gamma2 color correction
-	r := math.sqrt(pixel_color.r)
-	g := math.sqrt(pixel_color.g)
-	b := math.sqrt(pixel_color.b)
-
-	// quantize [0.0,1.0] float values to [0,255] byte range.
-	ir := u8(256 * math.min(r, 0.999))
-	ig := u8(256 * math.min(g, 0.999))
-	ib := u8(256 * math.min(b, 0.999))
-
-	serialize :: proc(dst: []byte, u: u8, separator: byte) {
-		dst[0] = '0' + ((u / 100) % 10)
-		dst[1] = '0' + ((u /  10) % 10)
-		dst[2] = '0' + ( u        % 10)
-		dst[3] = separator
-
-		// replace leading zeroes
-		dst[0] = dst[0]=='0'                ? ' ' : dst[0]
-		dst[1] = dst[0]==' ' && dst[1]=='0' ? ' ' : dst[1]
-	}
-
-	serialize(image[0: 4], ir,  ' ')
-	serialize(image[4: 8], ig,  ' ')
-	serialize(image[8:12], ib, '\n')
-}
-
-sphere :: struct {
-	center : vec3,
-	radius : f64,
-	material : material,
-}
-
 camera :: struct {
 	position : point3,
 	right: vec3,
@@ -559,7 +523,13 @@ camera :: struct {
 	max_ray_bounces : i64,
 }
 
-render :: proc(image: []byte, camera: camera, spheres : []sphere, $print_progress : bool) {
+sphere :: struct {
+	center : vec3,
+	radius : f64,
+	material : material,
+}
+
+render :: proc(render_target: image, camera: camera, spheres : []sphere, $print_progress : bool) {
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
 	// we position the view plane on the focus plane
@@ -588,15 +558,17 @@ render :: proc(image: []byte, camera: camera, spheres : []sphere, $print_progres
 	dof_disk_u := camera.right * dof_radius
 	dof_disk_v := camera.up    * dof_radius
 
-	image_width  := cast(int)camera.image_size.x
-	image_height := cast(int)camera.image_size.y
+	// TODO(viktor): test behavior when sensor size != render target resolution
+	image_width  := cast(int)render_target.resolution.x
+	image_height := cast(int)render_target.resolution.y
 	pixel_sample_contribution_scale := 1.0 / cast(f64)camera.samples_per_pixel
 	for v in 0..<image_height {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
 		for u in 0..<image_width {
 			pixel_color : color
 			for _ in 0..<camera.samples_per_pixel {
-				offset := random_vec2_range(-0.5, 0.5)
+				// if we include max we may sample the max borders twice with adjacent pixels
+				offset := random_vec2_range(-0.5, 0.5/* +math.F64_EPSILON */)
 				pixel_sample :=
 					view_plane_top_left_pixel_center +
 					(cast(f64)u + offset.x) * pixel_delta_u +
@@ -613,8 +585,17 @@ render :: proc(image: []byte, camera: camera, spheres : []sphere, $print_progres
 				r := ray{ray_origin, ray_direction}
 				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres)
 			}
-			write_offset := (u + v * image_width) * 4 * 3
-			write_color(image[write_offset:write_offset + 4 * 3], pixel_sample_contribution_scale * pixel_color)
+			// get final sample
+			pixel_color = pixel_sample_contribution_scale * pixel_color
+
+			// TODO: move this out in front of serialization as a filter pass?
+			// linear to gamma2 color correction
+			pixel_color.r = math.sqrt(pixel_color.r)
+			pixel_color.g = math.sqrt(pixel_color.g)
+			pixel_color.b = math.sqrt(pixel_color.b)
+
+			index := u + v * image_width
+			render_target.data[index] = pixel_color
 		}
 	}
 
@@ -715,23 +696,76 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]s
 	return camera, spheres
 }
 
+serialize :: proc(str: ^strings.Builder, image: image) -> string {
+	id := image.fourcc == "PPM3" ? "P3" : "P6"
+	fmt.sbprintfln(str, "%v\n%v %v\n255", id, image.resolution.x, image.resolution.y)
+	header_size := cast(i64)len(str.buf)
+	CHARS_PER_CHANNEL :: 4
+	non_zero_resize_dynamic_array(&str.buf, header_size + image.resolution.x * image.resolution.y * CHARS_PER_CHANNEL * len(color))
+
+	serialize_channel :: proc(dst: []byte, u: u8, separator: byte) {
+		dst[0] = '0' + ((u / 100) % 10)
+		dst[1] = '0' + ((u /  10) % 10)
+		dst[2] = '0' + ( u        % 10)
+		dst[3] = separator
+
+		// replace leading zeroes
+		dst[0] = dst[0]=='0'                ? ' ' : dst[0]
+		dst[1] = dst[0]==' ' && dst[1]=='0' ? ' ' : dst[1]
+	}
+
+	output_stride := CHARS_PER_CHANNEL * len(color)
+	output_slice := str.buf[header_size:]
+	// TODO(viktor): hardcoded for rgb for now
+	for pixel, i in image.data /* do for channel in pixel */ {
+		// quantize [0.0,1.0] float values to [0,255] byte range.
+		r := u8(256 * math.min(pixel.r, 0.999))
+		g := u8(256 * math.min(pixel.g, 0.999))
+		b := u8(256 * math.min(pixel.b, 0.999))
+		// image[3] = u8(256 * math.min(a, 0.999))
+
+		offset := i * output_stride
+		output_pixel := output_slice[offset:offset+output_stride]
+		serialize_channel(output_pixel[0: 4], r,  ' ')
+		serialize_channel(output_pixel[4: 8], g,  ' ')
+		serialize_channel(output_pixel[8:12], b, '\n')
+	}
+
+	return strings.to_string(str^)
+}
+
+image :: struct {
+	fourcc: [4]byte,
+	resolution: i64x2,
+	// width, height: int,
+	data: []color,
+	// TODO(viktor): generalize to support rgba etc?
+	// format: color_format, // enum | maybe bits_per_pixel?
+	// data: []byte,
+}
+
 main :: proc () {
 	rand.reset(1)
 
 	// Scene
 	camera, spheres := build_dev_scene(context.allocator)
-	defer free_all(context.allocator)
+	// defer free_all(context.allocator)
 	// defer for sphere in spheres { free(sphere.material.data) }
-	// defer delete_dynamic_array(spheres)
+	// defer delete(spheres)
+
+	image: image
+	image.fourcc = "PPM3"
+	image.resolution.x = cast(i64)camera.image_size.x
+	image.resolution.y = cast(i64)camera.image_size.y
+	image.data   = make([]color, image.resolution.x * image.resolution.y, context.allocator)
+	defer delete(image.data, context.allocator)
+
+	render(image, camera, spheres[:], true)
 
 	str: strings.Builder
 	strings.builder_init(&str, context.allocator)
 	defer strings.builder_destroy(&str)
-	fmt.sbprintfln(&str, "P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
-	header_size := len(str.buf)
-	non_zero_resize_dynamic_array(&str.buf, header_size + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 4 * 3)
-	image := str.buf[header_size:]
-	render(image, camera, spheres[:], true)
+	serialized := serialize(&str, image)
 
-	fmt.print(strings.to_string(str))
+	fmt.print(serialized)
 }

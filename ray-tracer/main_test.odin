@@ -1,6 +1,6 @@
 package main
 
-import "core:os"
+import "core:log"
 import "core:fmt"
 import "core:strings"
 // import "core:math/rand"
@@ -27,34 +27,34 @@ import "core:time"
 
 bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
+	log.infof("Rounds: %v", options.rounds)
 	// rand.reset(seed=0)
 
-	camera, spheres := build_final_scene(allocator)
-	defer for sphere in spheres { free(sphere.material.data) }
-	defer delete_dynamic_array(spheres)
+	camera, spheres := build_dev_scene(allocator)
+	defer for sphere in spheres { free(sphere.material.data, allocator) }
+	defer delete(spheres)
+
+	image: image
+	image.fourcc = "PPM3"
+	image.resolution.x = cast(i64)camera.image_size.x
+	image.resolution.y = cast(i64)camera.image_size.y
+	image.data   = make([]color, image.resolution.x * image.resolution.y, allocator)
+	defer delete(image.data, allocator)
+
+	options.bytes = len(image.data)
+	for round in 1..=options.rounds {
+		fmt.eprintf("\rRound %v/%v", round, options.rounds)
+		render(image, camera, spheres[:], false)
+	}
+	fmt.eprintln("\rDone.       ")
 
 	str: strings.Builder
 	strings.builder_init(&str)
 	defer strings.builder_destroy(&str)
-	fmt.sbprintfln(&str, "P3\n%v %v\n255", cast(int)camera.image_size.x, cast(int)camera.image_size.y)
-	header_size := len(str.buf)
-	non_zero_resize_dynamic_array(&str.buf, header_size + cast(int)camera.image_size.x * cast(int)camera.image_size.y * 4 * 3)
-	options.bytes = len(str.buf)
-	image := str.buf[header_size:]
-	// slice.fill(image, ' ')
-	for _/* round */ in 1..=options.rounds {
-		// fmt.eprintf("\rRound %v/%v", round, options.rounds)
-		render(image, camera, spheres[:], false)
-	}
-	// fmt.eprintln("\rDone.       ")
 
-	if fd, ferr := os.open("out/test.ppm", os.O_CREATE | os.O_RDWR); ferr != nil {
-		err = .Allocation_Error
-		// panic("couldn't open test.ppm")
-	} else {
-		fmt.fprint(fd, strings.to_string(str))
-		os.close(fd)
-	}
+	serialized := serialize(&str, image)
+
+	fmt.print(serialized)
 
 	options.count     = options.rounds
 	options.processed = options.rounds * options.bytes
