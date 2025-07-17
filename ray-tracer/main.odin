@@ -5,7 +5,8 @@ import "core:math"
 import "core:math/rand"
 import "core:strings"
 
-/// vec
+
+/// types
 
 f64x2  :: [2]f64
 f64x3  :: [3]f64
@@ -63,13 +64,15 @@ is_normalized :: proc "contextless" (vec: vec3) -> bool {
 }
 
 lookat :: proc "contextless" (position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3 = {0, 1, 0}) -> (right, up, forward: vec3) {
-
 	// view cartesian coordinate system
 	forward = normalize(target - position)
 	right   = normalize(cross(forward, axis_up))
 	up      = cross(right, forward)
 	return
 }
+
+
+/// ray tracing
 
 // ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
 reflect :: proc "contextless" (vec, normal: vec3) -> vec3 {
@@ -173,6 +176,7 @@ refract_with_relative_refractive_index :: proc(vec, normal: vec3, relative_refra
 
 refract :: proc { refract_with_reference_medium, refract_with_relative_refractive_index }
 
+
 /// random
 
 random_vec3 :: proc(gen := context.random_generator) -> vec3 {
@@ -218,6 +222,7 @@ random_point_on_disk :: proc(gen := context.random_generator) -> point3 {
 		}
 	}
 }
+
 
 /// raycast
 
