@@ -37,7 +37,7 @@ if "%runningProcesses%"=="0" (
 remedybg stop-debugging
 remedybg open-file "%source_path%"
 remedybg add-breakpoint-at-function "main.main"
-remedybg start-debugging
+call remedybg start-debugging
 :: remedybg remove-breakpoint-at-function "main.main"
 
 

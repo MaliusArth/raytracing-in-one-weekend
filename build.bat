@@ -18,16 +18,19 @@ echo.%~0 %* >&2
 set "-build_setting=%~1" & shift
 set "-source=%~1"  & shift
 
-if "%-source%" == ""     echo missing source package/file        & goto :eof
-if not exist "%-source%" echo source '%-source%' does not exist! & goto :eof
+if "%-source%" == ""     echo missing source package/file        >&2 & goto :eof
+if not exist "%-source%" echo source '%-source%' does not exist! >&2 & goto :eof
 
 :parse_args
 :: variable cli_match cur_arg
 call :get_arg_flag "-file" "-file" "%~1" && shift && goto :parse_args
 call :get_arg_flag "-dry"  "-dry"  "%~1" && shift && goto :parse_args
 call :get_arg_flag "-run"  "-run"  "%~1" && shift && goto :parse_args
-call :get_arg_flag "-test"  "-test"  "%~1" && shift && goto :parse_args
+call :get_arg_flag "-test" "-test" "%~1" && shift && goto :parse_args
 @REM call :get_arg_with_value "-build_setting" "-build_setting" "%~1" "%~2" "build" && shift && shift && goto :parse_args
+
+:: check for remaining unknown arguments
+if not "%~1"=="" echo unknown argument %~1 >&2 & goto :eof
 
 @REM echo -file: %-file%
 @REM echo -dry: %-dry%
@@ -84,7 +87,7 @@ set "style_settings=-vet -strict-style -vet-using-param -vet-cast -vet-tabs"
 if "%-build_setting%"=="sanitize"   set "compiler_settings=-o:minimal -debug -sanitize:address"
 if "%-build_setting%"=="debug"   set "compiler_settings=-o:minimal -debug"
 if "%-build_setting%"=="release" set "compiler_settings=-o:speed   -debug"
-if "%-build_setting%"=="fast"    set "compiler_settings=-o:aggressive -disable-assert"
+if "%-build_setting%"=="fast"    set "compiler_settings=-o:aggressive -disable-assert -no-bounds-check -debug"
 :: if "%-build_setting%"=="test"    set "compiler_settings=-o:aggressive -disable-assert"
 if "%-build_setting%"=="asm"     set "compiler_settings=-o:speed -build-mode:asm -keep-temp-files"
 

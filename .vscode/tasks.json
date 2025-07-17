@@ -18,7 +18,7 @@
     },
     "presentation": {
         "echo": true,
-        "reveal": "never",
+        "reveal": "always",
         "focus": false,
         "panel": "dedicated",
         "showReuseMessage": false,
@@ -54,25 +54,25 @@
         },
         {
             "label": "build debug & run",
-            "command": "md .\\out 2>nul & build debug ${workspaceFolderBasename} -run > .\\out\\image.ppm",
+            "command": "md .\\out 2>nul & build debug ${workspaceFolderBasename} -run 1> .\\out\\image.ppm",
         },
         {
             "label": "build release & run",
-            "command": "md .\\out 2>nul & build release ${workspaceFolderBasename} -run > .\\out\\image.ppm",
+            "command": "md .\\out 2>nul & build release ${workspaceFolderBasename} -run 1> .\\out\\image.ppm",
         },
         {
             "label": "run",
-            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
+            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe 1> .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
         },
         // {
         //     "label": "build debug & run",
-        //     "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe > .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
+        //     "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe 1> .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
         //     "dependsOn": "build debug",
         // },
         {
             "label": "test",
             "group": "test",
-            "command": "build fast ${workspaceFolderBasename} -test",
+            "command": "build fast ${workspaceFolderBasename} -test 1> .\\out\\test.ppm",
         }
     ],
 }
