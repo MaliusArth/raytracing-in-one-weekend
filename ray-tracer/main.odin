@@ -238,10 +238,11 @@ hit_record :: struct {
 	front_face : bool,
 }
 
+// returns value in range [t_min, t_max) or t_max if no hit
 ray_sphere_intersection :: #force_inline proc "contextless" (
-// TODO: fix inconsistent sphere & t_range member params: create anon struct for sphere?
-	r: ray, sphere_center: point3, sphere_radius: f64, t_range: struct{min, max: f64} = {0, math.F64_MAX}) -> (record: hit_record) {
-	record.t = t_range.max
+	r: ray, sphere_center: point3, sphere_radius: f64, t_min: f64 = 0, t_max: f64 = math.F64_MAX) -> (t: f64) {
+
+	t = t_max
 
 	o_c := sphere_center - r.origin
 	a := magnitude_squared(r.direction)
@@ -254,18 +255,13 @@ ray_sphere_intersection :: #force_inline proc "contextless" (
 
 	// Find the nearest root that lies in the acceptable range
 	root := (h - sqrtd) / a
-	if root < t_range.min || t_range.max < root {
+	if root < t_min || t_max <= root {
 		root = (h + sqrtd) / a
-		if root < t_range.min || t_range.max < root do return
+		if root < t_min || t_max <= root do return
 	}
 
-	record.t = root
-	record.p = r.origin + root*r.direction
-	record.normal = (record.p - sphere_center) / sphere_radius
-	record.front_face = dot(r.direction, record.normal) < 0
-	record.normal = record.front_face ? record.normal : -record.normal
-
-	return record
+	t = root
+	return
 }
 
 /// materials
@@ -446,54 +442,36 @@ background_color :: proc "contextless" (r: ^ray) -> color {
 	return math.lerp(a, b, t)
 }
 
-TEST_RECURSIVE_RAY_CAST :: #config(TEST_RECURSIVE_RAY_CAST, 0)
-when TEST_RECURSIVE_RAY_CAST==1 {
-ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
-	if max_ray_bounces < 0 do return color{1,1,1}
 
-	closest_hit := hit_record{t=math.F64_MAX}
-	material: material
-	SHADOW_ACNE_RAY_OFFSET :: 0.001
-	for &sphere in spheres {
-		hit := ray_sphere_intersection(r^, sphere.center, sphere.radius, {SHADOW_ACNE_RAY_OFFSET, closest_hit.t})
-		if hit.t < closest_hit.t {
-			closest_hit = hit
-			material = sphere.material
-		}
-	}
-
-	output_color: color
-	if closest_hit.t < math.F64_MAX {
-		if scattered_ray, attenuation, ok := material.procedure(material.data, r, &closest_hit); ok {
-			output_color = attenuation * ray_cast(&scattered_ray, max_ray_bounces-1, spheres)
-		} else {
-			output_color = {0,0,0} // ray got absorbed
-		}
-	} else {
-		// NOTE(viktor): only needs to be normalized for the background gradient
-		r.direction = normalize(r.direction)
-		output_color = background_color(r)
-	}
-	return output_color
-}
-} else {
 ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
 	scattered_ray: ray = r^
 	output_color := color{1, 1, 1}
 
 	for _ in 0..=max_ray_bounces {
-		closest_hit := hit_record{t=math.F64_MAX}
-		material: material
+		closest_t := math.F64_MAX
+		closest_sphere: ^sphere
+		// closest_sphere_index := -1
 		SHADOW_ACNE_RAY_OFFSET :: 0.001
-		for &sphere in spheres {
-			hit := ray_sphere_intersection(scattered_ray, sphere.center, sphere.radius, {SHADOW_ACNE_RAY_OFFSET, closest_hit.t})
-			if hit.t < closest_hit.t {
-				closest_hit = hit
-				material = sphere.material
+		for &sphere/* , index */ in spheres {
+			t := ray_sphere_intersection(scattered_ray, sphere.center, sphere.radius, SHADOW_ACNE_RAY_OFFSET, closest_t)
+			if t < closest_t {
+				closest_t = t
+				closest_sphere = &sphere
+				// closest_sphere_index = index
 			}
 		}
 
-		if closest_hit.t < math.F64_MAX {
+		if closest_t < math.F64_MAX {
+			material: material
+			material = closest_sphere.material
+
+			closest_hit: hit_record
+			closest_hit.t = closest_t
+			closest_hit.p = scattered_ray.origin + closest_t*scattered_ray.direction
+			closest_hit.normal = (closest_hit.p - closest_sphere.center) / closest_sphere.radius
+			closest_hit.front_face = dot(scattered_ray.direction, closest_hit.normal) < 0
+			closest_hit.normal = closest_hit.front_face ? closest_hit.normal : -closest_hit.normal
+
 			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
 			if material_ray, attenuation, ok := material.procedure(material.data, &scattered_ray, &closest_hit); ok {
 				scattered_ray = material_ray
@@ -510,7 +488,6 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
 		}
 	}
 	return output_color
-}
 }
 
 camera :: struct {
