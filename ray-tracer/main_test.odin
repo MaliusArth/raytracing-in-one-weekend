@@ -1,6 +1,6 @@
 package main
 
-import "core:log"
+// import "core:log"
 import "core:fmt"
 import "core:strings"
 // import "core:math/rand"
@@ -27,7 +27,8 @@ import "core:time"
 
 bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
-	log.infof("Rounds: %v", options.rounds)
+	// fmt.eprintfln("Rounds: %v", options.rounds)
+	// log.infof("Rounds: %v", options.rounds)
 	// rand.reset(seed=0)
 
 	camera, spheres := build_dev_scene(allocator)
@@ -46,7 +47,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 		fmt.eprintf("\rRound %v/%v", round, options.rounds)
 		render(image, camera, spheres[:], false)
 	}
-	fmt.eprintln("\rDone.       ")
+	fmt.eprintln("\rDone.        ")
 
 	str: strings.Builder
 	strings.builder_init(&str)
@@ -66,7 +67,8 @@ benchmark_materials :: proc(t: ^testing.T) {
 	str: strings.Builder
 	strings.builder_init(&str)
 	defer {
-		fmt.println(strings.to_string(str))
+		fmt.eprintln(strings.to_string(str))
+		// log.info(strings.to_string(str))
 		strings.builder_destroy(&str)
 	}
 
