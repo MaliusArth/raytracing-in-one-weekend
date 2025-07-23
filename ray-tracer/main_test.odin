@@ -1,38 +1,17 @@
 package main
 
-// import "core:log"
 import "core:fmt"
 import "core:strings"
-// import "core:math/rand"
 import "core:testing"
 import "core:time"
-// import "core:slice"
-
-// build_test_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sphere) {
-// 	spheres := make_dynamic_array([dynamic]sphere, allocator)
-// 	ground := material_make(color{0.8, 0.8, 0.0}, allocator)
-// 	blue   := material_make(color{0.1, 0.2, 0.5}, allocator)
-// 	silver := material_make(color{0.8, 0.8, 0.8}, allocator)
-// 	gold   := material_make(color{0.8, 0.6, 0.2}, allocator)
-// 	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material=ground})
-// 	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material=blue})
-// 	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material=silver})
-// 	append(&spheres, sphere{center={ 1.0,    0.0, -1.0}, radius=0.5, material=gold})
-
-// 	camera: camera
-// 	camera_init(&camera)
-
-// 	return camera, spheres
-// }
 
 bench_materials ::
 proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
 	// fmt.eprintfln("Rounds: %v", options.rounds)
 	// log.infof("Rounds: %v", options.rounds)
-	// rand.reset(seed=0)
 
-	camera, spheres := build_dev_scene(allocator)
-	defer for sphere in spheres { free(sphere.material.data, allocator) }
+	camera, materials, spheres := build_dev_scene(allocator)
+	defer delete(materials)
 	defer delete(spheres)
 
 	image: image
@@ -45,7 +24,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	options.bytes = len(image.data)
 	for round in 1..=options.rounds {
 		fmt.eprintf("\rRound %v/%v", round, options.rounds)
-		render(image, camera, spheres[:], false)
+			render(image, camera, materials[:], spheres[:], false)
 	}
 	fmt.eprintln("\rDone.        ")
 

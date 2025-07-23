@@ -266,16 +266,31 @@ ray_sphere_intersection :: #force_inline proc "contextless" (
 
 /// materials
 
-lambertian_data :: struct {
-	albedo : color,
+material_type :: enum i64 {
+	lambertian,
+	metallic,
+	dielectric,
 }
 
-lambertian_data_init :: proc "contextless" (data : ^lambertian_data, albedo : color) {
-	data^ = {albedo=albedo}
+material_data :: struct {
+	albedo: color,
+	param1: f64, // fuzz for metal, refractive_index for dielectric
+}
+
+make_metallic_data :: proc(albedo: color, fuzz: f64) -> material_data {
+	assert(0 <= fuzz && fuzz <= 1.0)
+	// data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
+	return {albedo=albedo, param1=fuzz}
+}
+
+material :: struct {
+	// TODO: Maybe get rid of the type at this place? it isn't used inside the actual scatter procs, so its just bloating up the materials array, it's only relevant info at branch-time
+	type: material_type,
+	data: material_data,
 }
 
 // ![](https://raytracing.github.io/images/fig-1.14-rand-unitvec.jpg|width=200)
-lambertian_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
+lambertian_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
                        (ray_out: ray, attenuation: color, ok: bool) {
 	// Lambertian (diffuse) reflectance can either
 	//  * always scatter and attenuate light according to its reflectance R,
@@ -289,32 +304,22 @@ lambertian_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 
 	ray_out = ray{hit.p, output_direction}
 
-	material := cast(^lambertian_data)data
-	attenuation = material.albedo
+	attenuation = data.albedo
 	// Note the third option: we could scatter with some fixed probability p and have attenuation be albedo/p.
 	// p := fixed probability
-	// attenuation = material.albedo/p
+	// attenuation = albedo/p
 	ok = true
 	return
 }
 
-metallic_data :: struct {
-	albedo : color,
-	fuzz : f64,
-}
-
-metallic_data_init :: proc(data: ^metallic_data, albedo: color, fuzz: f64) {
-	assert(0 <= fuzz && fuzz <= 1.0)
-	data^ = {albedo=albedo, fuzz=fuzz}
-	// data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
-}
-
 // ![](https://raytracing.github.io/images/fig-1.16-reflect-fuzzy.jpg|width=200)
-metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
-                     (ray_out: ray, attenuation: color, ok: bool) {
-	material := cast(^metallic_data)data
+metallic_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
+					 (ray_out: ray, attenuation: color, ok: bool) {
+	albedo := data.albedo
+	fuzz := data.param1
+
 	output_direction := normalize(reflect(ray_in.direction, hit.normal))
-	output_direction += material.fuzz * random_unit_vector()
+	output_direction += fuzz * random_unit_vector()
 	ray_out = ray{hit.p, output_direction}
 
 	USE_METAL_FRESNEL :: #config(USE_METAL_FRESNEL, false)
@@ -340,30 +345,22 @@ metallic_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) ->
 		}
 
 		// refraction_color*refraction_factor + reflection_color*reflection_factor
-		attenuation = math.lerp(material.albedo, color{1, 1, 1}, reflection_factor)
+		attenuation = math.lerp(albedo, color{1, 1, 1}, reflection_factor)
 	} else {
-		attenuation = material.albedo
+		attenuation = albedo
 	}
 	ok = dot(output_direction, hit.normal) > 0
 	return
 }
 
-dielectric_data :: struct {
-	refractive_index: f64,
-}
-
-dielectric_data_init :: proc "contextless" (data: ^dielectric_data, refractive_index: f64) {
-	data^ = {refractive_index=refractive_index}
-}
-
 // ![](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
-dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
-	material := cast(^dielectric_data)data
+dielectric_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
+	refractive_index := data.param1
 
 	// materials with a refractive_index < 1 (air/vaccuum) are treated as air/vaccuum materials
-	// inside a denser material with the effective refractive index of 1/material.refractive_index
-	src_refractive_index := 1.0                       if material.refractive_index >= 1.0 else 1.0 / material.refractive_index
-	dst_refractive_index := material.refractive_index if material.refractive_index >= 1.0 else 1.0
+	// inside a denser material with the effective refractive index of 1/refractive_index
+	src_refractive_index := 1.0              if refractive_index >= 1.0 else 1.0 / refractive_index
+	dst_refractive_index := refractive_index if refractive_index >= 1.0 else 1.0
 
 	if !hit.front_face {
 		// swap
@@ -403,35 +400,14 @@ dielectric_proc :: proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_ou
 	return
 }
 
-material_proc :: #type proc(data: rawptr, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool)
 
-material :: struct {
-	procedure : material_proc,
-	data : rawptr,
-}
-
-material_make_lambertian :: proc(albedo: color, allocator := context.allocator) -> material {
-	data := new(lambertian_data, allocator)
-	lambertian_data_init(data, albedo)
-	return {lambertian_proc, data}
-}
-
-material_make_metallic :: proc(albedo: color, fuzz: f64, allocator := context.allocator) -> material {
-	data := new(metallic_data, allocator)
-	metallic_data_init(data, albedo, fuzz)
-	return {metallic_proc, data}
-}
-
-material_make_dielectric :: proc(refractive_index: f64, allocator := context.allocator) -> material {
-	data := new(dielectric_data, allocator)
-	dielectric_data_init(data, refractive_index)
-	return {dielectric_proc, data}
-}
-
-material_make :: proc {
-	material_make_lambertian,
-	material_make_metallic,
-	material_make_dielectric,
+material_scatter :: proc(material: material, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: v3, ok: bool) {
+	switch material.type {
+	case .lambertian: return lambertian_proc(material.data, ray_in, hit)
+	case .metallic:   return   metallic_proc(material.data, ray_in, hit)
+	case .dielectric: return dielectric_proc(material.data, ray_in, hit)
+	}
+	unreachable()
 }
 
 background_color :: proc "contextless" (r: ^ray) -> color {
@@ -443,7 +419,7 @@ background_color :: proc "contextless" (r: ^ray) -> color {
 }
 
 
-ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
+ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []material) -> color {
 	scattered_ray: ray = r^
 	output_color := color{1, 1, 1}
 
@@ -462,9 +438,9 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
 		}
 
 		if closest_t < math.F64_MAX {
-			material: material
-			material = closest_sphere.material
+			material := &materials[closest_sphere.material_index]
 
+			// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
 			closest_hit: hit_record
 			closest_hit.t = closest_t
 			closest_hit.p = scattered_ray.origin + closest_t*scattered_ray.direction
@@ -473,7 +449,8 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere) -> color {
 			closest_hit.normal = closest_hit.front_face ? closest_hit.normal : -closest_hit.normal
 
 			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
-			if material_ray, attenuation, ok := material.procedure(material.data, &scattered_ray, &closest_hit); ok {
+			// TODO(viktor): instead of including material types in the materials array encode the info in sphere.material_index via bit-shifting
+			if material_ray, attenuation, ok := material_scatter(material^, &scattered_ray, &closest_hit); ok {
 				scattered_ray = material_ray
 				output_color *= attenuation
 			} else {
@@ -508,10 +485,10 @@ camera :: struct {
 sphere :: struct {
 	center : vec3,
 	radius : f64,
-	material : material,
+	material_index: i64,
 }
 
-render :: proc(render_target: image, camera: camera, spheres : []sphere, $print_progress : bool) {
+render :: proc(render_target: image, camera: camera, materials: []material, spheres : []sphere, $print_progress : bool) {
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
 	// we position the view plane on the focus plane
@@ -565,7 +542,7 @@ render :: proc(render_target: image, camera: camera, spheres : []sphere, $print_
 				}
 				ray_direction := pixel_sample - ray_origin
 				r := ray{ray_origin, ray_direction}
-				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres)
+				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres, materials)
 			}
 			// get final sample
 			pixel_color = pixel_sample_contribution_scale * pixel_color
@@ -584,20 +561,22 @@ render :: proc(render_target: image, camera: camera, spheres : []sphere, $print_
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
-build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sphere) {
-	spheres := make_dynamic_array([dynamic]sphere, allocator)
-	ground     := material_make_lambertian({0.8, 0.8, 0.0}, allocator)
-	blue       := material_make_lambertian({0.1, 0.2, 0.5}, allocator)
-	// silver     := material_make_metallic({0.8, 0.8, 0.8}, 0.3, allocator)
-	glass      := material_make_dielectric(1.5, allocator)
-	air_bubble := material_make_dielectric(1.0/1.5, allocator)
-	gold       := material_make_metallic({0.8, 0.6, 0.2}, 1.0, allocator)
+build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]material, [dynamic]sphere) {
+	materials := make_dynamic_array([dynamic]material, allocator)
+	/* ground */     append(&materials, material{type=.lambertian, data={albedo={0.8, 0.8, 0.0}}})
+	/* blue */       append(&materials, material{type=.lambertian, data={albedo={0.1, 0.2, 0.5}}})
+	// /* silver */     append(&materials, material{type=.metallic,   data=make_metallic_data(albedo={0.8, 0.8, 0.8}, fuzz=0.3)})
+	/* glass */      append(&materials, material{type=.dielectric, data={param1=1.5}})
+	/* air_bubble */ append(&materials, material{type=.dielectric, data={param1=1.0/1.5}})
+	/* gold */       append(&materials, material{type=.metallic,   data=make_metallic_data(albedo={0.8, 0.6, 0.2}, fuzz=1.0)})
 
-	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material=ground})
-	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material=blue})
-	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material=glass})
-	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.4, material=air_bubble})
-	append(&spheres, sphere{center={ 1.0,    0.0, -1.0}, radius=0.5, material=gold})
+	// TODO: an associative relation between spheres & materials would be nicer to ensure that changes to the materials order don't affect sphere representation
+	spheres := make_dynamic_array([dynamic]sphere, allocator)
+	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material_index=0/* ground */})
+	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material_index=1/* blue */})
+	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material_index=2/* glass */})
+	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.4, material_index=3/* air_bubble */})
+	append(&spheres, sphere{center={ 1.0,    0.0, -1.0}, radius=0.5, material_index=4/* gold */})
 
 	// black  := material_make_lambertian(albedo={0.1, 0.1, 0.1})
 	// red    := material_make_lambertian(albedo={0.5, 0.2, 0.1})
@@ -631,15 +610,21 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sph
 	camera.samples_per_pixel = 100
 	camera.max_ray_bounces = 50
 
-	return camera, spheres
+	return camera, materials, spheres
 }
 
-build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]sphere) {
+build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]material, [dynamic]sphere) {
+	materials := make_dynamic_array([dynamic]material, allocator)
+	append(&materials, material{type=.lambertian, data={albedo={0.5, 0.5, 0.5}}})
+	append(&materials, material{type=.dielectric, data={param1=1.5}})
+	append(&materials, material{type=.lambertian, data={albedo={0.4, 0.2, 0.1}}})
+	append(&materials, material{type=.metallic, data={albedo={0.7, 0.6, 0.5}, param1=0.0}})
+
 	spheres := make_dynamic_array([dynamic]sphere, allocator)
-	append(&spheres, sphere{center={ 0.0, -1000, 0}, radius=1000, material=material_make_lambertian({0.5, 0.5, 0.5}, allocator)})
-	append(&spheres, sphere{center={   0,     1, 0}, radius= 1.0, material=material_make_dielectric(1.5, allocator)})
-	append(&spheres, sphere{center={  -4,     1, 0}, radius= 1.0, material=material_make_lambertian({0.4, 0.2, 0.1}, allocator)})
-	append(&spheres, sphere{center={   4,     1, 0}, radius= 1.0, material=material_make_metallic({0.7, 0.6, 0.5}, 0.0, allocator)})
+	append(&spheres, sphere{center={ 0.0, -1000, 0}, radius=1000, material_index=0})
+	append(&spheres, sphere{center={   0,     1, 0}, radius= 1.0, material_index=1})
+	append(&spheres, sphere{center={  -4,     1, 0}, radius= 1.0, material_index=2})
+	append(&spheres, sphere{center={   4,     1, 0}, radius= 1.0, material_index=3})
 
 	for a in -11..<11 {
 		for b in -11..<11 {
@@ -650,14 +635,17 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]s
 				if choose_mat < 0.8 {
 					// diffuse
 					albedo := random_vec3()*random_vec3()
-					append(&spheres, sphere{center=center, radius=0.2, material=material_make_lambertian(albedo, allocator)})
+					append(&materials, material{type=.lambertian, data={albedo=albedo}})
+					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				} else if choose_mat < 0.95 {
 					// metal
 					albedo := random_vec3_range(0.5, 1)
 					fuzz := rand.float64_range(0, 0.5)
-					append(&spheres, sphere{center=center, radius=0.2, material=material_make_metallic(albedo, fuzz, allocator)})
+					append(&materials, material{type=.metallic, data=make_metallic_data(albedo, fuzz)})
+					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				} else {
-					append(&spheres, sphere{center=center, radius=0.2, material=material_make_dielectric(1.5, allocator)})
+					append(&materials, material{type=.dielectric, data={param1=1.5}})
+					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				}
 			}
 		}
@@ -675,7 +663,7 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]s
 	camera.samples_per_pixel = 500
 	camera.max_ray_bounces = 50
 
-	return camera, spheres
+	return camera, materials, spheres
 }
 
 serialize :: proc(str: ^strings.Builder, image: image) -> string {
@@ -730,7 +718,7 @@ main :: proc () {
 	rand.reset(1)
 
 	// Scene
-	camera, spheres := build_dev_scene(context.allocator)
+	camera, materials, spheres := build_dev_scene(context.allocator)
 	// defer free_all(context.allocator)
 	// defer for sphere in spheres { free(sphere.material.data) }
 	// defer delete(spheres)
@@ -742,7 +730,7 @@ main :: proc () {
 	image.data   = make([]color, image.resolution.x * image.resolution.y, context.allocator)
 	defer delete(image.data, context.allocator)
 
-	render(image, camera, spheres[:], true)
+	render(image, camera, materials[:], spheres[:], true)
 
 	str: strings.Builder
 	strings.builder_init(&str, context.allocator)
