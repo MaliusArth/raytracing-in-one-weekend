@@ -561,17 +561,17 @@ render :: proc(render_target: image, camera: camera, materials: []material, sphe
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
-build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]material, [dynamic]sphere) {
-	materials := make_dynamic_array([dynamic]material, allocator)
-	/* ground */     append(&materials, material{type=.lambertian, data={albedo={0.8, 0.8, 0.0}}})
-	/* blue */       append(&materials, material{type=.lambertian, data={albedo={0.1, 0.2, 0.5}}})
-	// /* silver */     append(&materials, material{type=.metallic,   data=make_metallic_data(albedo={0.8, 0.8, 0.8}, fuzz=0.3)})
-	/* glass */      append(&materials, material{type=.dielectric, data={param1=1.5}})
-	/* air_bubble */ append(&materials, material{type=.dielectric, data={param1=1.0/1.5}})
-	/* gold */       append(&materials, material{type=.metallic,   data=make_metallic_data(albedo={0.8, 0.6, 0.2}, fuzz=1.0)})
+build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, materials: [dynamic]material, spheres: [dynamic]sphere) {
+	materials = make(type_of(materials), allocator)
+	/* ground */     append(&materials, material{.lambertian, {albedo={0.8, 0.8, 0.0}}})
+	/* blue */       append(&materials, material{.lambertian, {albedo={0.1, 0.2, 0.5}}})
+	/* glass */      append(&materials, material{.dielectric, {param1=1.5}})
+	/* air_bubble */ append(&materials, material{.dielectric, {param1=1.0/1.5}})
+	/* gold */       append(&materials, material{.metallic,   make_metallic_data(albedo={0.8, 0.6, 0.2}, fuzz=1.0)})
+	// /* silver */     append(&materials, material{.metallic,   make_metallic_data(albedo={0.8, 0.8, 0.8}, fuzz=0.3)})
 
 	// TODO: an associative relation between spheres & materials would be nicer to ensure that changes to the materials order don't affect sphere representation
-	spheres := make_dynamic_array([dynamic]sphere, allocator)
+	spheres = make(type_of(spheres), allocator)
 	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material_index=0/* ground */})
 	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material_index=1/* blue */})
 	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material_index=2/* glass */})
@@ -598,7 +598,6 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]mat
 	// up_ball.center *= 0.1
 	// forward_ball.center *= 0.1
 
-	camera: camera
 	camera.position = {-2, 2, 1}
 	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
 	camera.aspect_ratio = 16.0/9.0
@@ -613,14 +612,14 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]mat
 	return camera, materials, spheres
 }
 
-build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]material, [dynamic]sphere) {
-	materials := make_dynamic_array([dynamic]material, allocator)
-	append(&materials, material{type=.lambertian, data={albedo={0.5, 0.5, 0.5}}})
-	append(&materials, material{type=.dielectric, data={param1=1.5}})
-	append(&materials, material{type=.lambertian, data={albedo={0.4, 0.2, 0.1}}})
-	append(&materials, material{type=.metallic, data={albedo={0.7, 0.6, 0.5}, param1=0.0}})
+build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, materials: [dynamic]material, spheres: [dynamic]sphere) {
+	materials = make(type_of(materials), allocator)
+	append(&materials, material{.lambertian, {albedo={0.5, 0.5, 0.5}}})
+	append(&materials, material{.dielectric, {param1=1.5}})
+	append(&materials, material{.lambertian, {albedo={0.4, 0.2, 0.1}}})
+	append(&materials, material{.metallic,   {albedo={0.7, 0.6, 0.5}, param1=0.0}})
 
-	spheres := make_dynamic_array([dynamic]sphere, allocator)
+	spheres = make(type_of(spheres), allocator)
 	append(&spheres, sphere{center={ 0.0, -1000, 0}, radius=1000, material_index=0})
 	append(&spheres, sphere{center={   0,     1, 0}, radius= 1.0, material_index=1})
 	append(&spheres, sphere{center={  -4,     1, 0}, radius= 1.0, material_index=2})
@@ -635,23 +634,22 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera, [dynamic]m
 				if choose_mat < 0.8 {
 					// diffuse
 					albedo := random_vec3()*random_vec3()
-					append(&materials, material{type=.lambertian, data={albedo=albedo}})
+					append(&materials, material{.lambertian, {albedo=albedo}})
 					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				} else if choose_mat < 0.95 {
 					// metal
 					albedo := random_vec3_range(0.5, 1)
 					fuzz := rand.float64_range(0, 0.5)
-					append(&materials, material{type=.metallic, data=make_metallic_data(albedo, fuzz)})
+					append(&materials, material{.metallic, make_metallic_data(albedo, fuzz)})
 					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				} else {
-					append(&materials, material{type=.dielectric, data={param1=1.5}})
+					append(&materials, material{.dielectric, {param1=1.5}})
 					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				}
 			}
 		}
 	}
 
-	camera: camera
 	camera.position = {13, 2, 3}
 	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, 0}, axis_up={0, 1, 0})
 	camera.aspect_ratio = 16.0/9.0
