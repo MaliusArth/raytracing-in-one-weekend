@@ -518,8 +518,8 @@ render :: proc(render_target: image, camera: camera, materials: []material, sphe
 	dof_disk_v := camera.up    * dof_radius
 
 	// TODO(viktor): test behavior when sensor size != render target resolution
-	image_width  := cast(int)render_target.resolution.x
-	image_height := cast(int)render_target.resolution.y
+	image_width  := cast(int)render_target.width
+	image_height := cast(int)render_target.height
 	pixel_sample_contribution_scale := 1.0 / cast(f64)camera.samples_per_pixel
 	for v in 0..<image_height {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
@@ -666,10 +666,10 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, ma
 
 serialize :: proc(str: ^strings.Builder, image: image) -> string {
 	id := image.fourcc == "PPM3" ? "P3" : "P6"
-	fmt.sbprintfln(str, "%v\n%v %v\n255", id, image.resolution.x, image.resolution.y)
+	fmt.sbprintfln(str, "%v\n%v %v\n255", id, image.width, image.height)
 	header_size := cast(i64)len(str.buf)
 	CHARS_PER_CHANNEL :: 4
-	non_zero_resize_dynamic_array(&str.buf, header_size + image.resolution.x * image.resolution.y * CHARS_PER_CHANNEL * len(color))
+	non_zero_resize_dynamic_array(&str.buf, header_size + image.width * image.height * CHARS_PER_CHANNEL * len(color))
 
 	serialize_channel :: proc(dst: []byte, u: u8, separator: byte) {
 		dst[0] = '0' + ((u / 100) % 10)
@@ -704,8 +704,7 @@ serialize :: proc(str: ^strings.Builder, image: image) -> string {
 
 image :: struct {
 	fourcc: [4]byte,
-	resolution: i64x2,
-	// width, height: int,
+	width, height: i64,
 	data: []color,
 	// TODO(viktor): generalize to support rgba etc?
 	// format: color_format, // enum | maybe bits_per_pixel?
@@ -723,9 +722,9 @@ main :: proc () {
 
 	image: image
 	image.fourcc = "PPM3"
-	image.resolution.x = cast(i64)camera.image_size.x
-	image.resolution.y = cast(i64)camera.image_size.y
-	image.data   = make([]color, image.resolution.x * image.resolution.y, context.allocator)
+	image.width = cast(i64)camera.image_size.x
+	image.height = cast(i64)camera.image_size.y
+	image.data   = make([]color, image.width * image.height, context.allocator)
 	defer delete(image.data, context.allocator)
 
 	render(image, camera, materials[:], spheres[:], true)

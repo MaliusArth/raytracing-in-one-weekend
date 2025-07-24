@@ -16,9 +16,9 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 
 	image: image
 	image.fourcc = "PPM3"
-	image.resolution.x = cast(i64)camera.image_size.x
-	image.resolution.y = cast(i64)camera.image_size.y
-	image.data   = make([]color, image.resolution.x * image.resolution.y, allocator)
+	image.width = cast(i64)camera.image_size.x
+	image.height = cast(i64)camera.image_size.y
+	image.data   = make([]color, image.width * image.height, allocator)
 	defer delete(image.data, allocator)
 
 	options.bytes = len(image.data)
