@@ -234,7 +234,6 @@ ray :: struct {
 hit_record :: struct {
 	p : point3,
 	normal : vec3,
-	t : f64,
 	front_face : bool,
 }
 
@@ -442,7 +441,6 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []
 
 			// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
 			closest_hit: hit_record
-			closest_hit.t = closest_t
 			closest_hit.p = scattered_ray.origin + closest_t*scattered_ray.direction
 			closest_hit.normal = (closest_hit.p - closest_sphere.center) / closest_sphere.radius
 			closest_hit.front_face = dot(scattered_ray.direction, closest_hit.normal) < 0
