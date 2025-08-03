@@ -465,6 +465,11 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []
 	return output_color
 }
 
+image :: struct {
+	width, height: i64,
+	data: []color,
+}
+
 camera :: struct {
 	position : point3,
 	right: vec3,
@@ -662,9 +667,8 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, ma
 	return camera, materials, spheres
 }
 
-serialize :: proc(str: ^strings.Builder, image: image) -> string {
-	id := image.fourcc == "PPM3" ? "P3" : "P6"
-	fmt.sbprintfln(str, "%v\n%v %v\n255", id, image.width, image.height)
+serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
+	fmt.sbprintfln(str, "P3\n%v %v\n255", image.width, image.height)
 	header_size := cast(i64)len(str.buf)
 	CHARS_PER_CHANNEL :: 4
 	non_zero_resize_dynamic_array(&str.buf, header_size + image.width * image.height * CHARS_PER_CHANNEL * len(color))
@@ -682,13 +686,11 @@ serialize :: proc(str: ^strings.Builder, image: image) -> string {
 
 	output_stride := CHARS_PER_CHANNEL * len(color)
 	output_slice := str.buf[header_size:]
-	// TODO(viktor): hardcoded for rgb for now
-	for pixel, i in image.data /* do for channel in pixel */ {
+	for pixel, i in image.data {
 		// quantize [0.0,1.0] float values to [0,255] byte range.
 		r := u8(256 * math.min(pixel.r, 0.999))
 		g := u8(256 * math.min(pixel.g, 0.999))
 		b := u8(256 * math.min(pixel.b, 0.999))
-		// image[3] = u8(256 * math.min(a, 0.999))
 
 		offset := i * output_stride
 		output_pixel := output_slice[offset:offset+output_stride]
@@ -698,15 +700,6 @@ serialize :: proc(str: ^strings.Builder, image: image) -> string {
 	}
 
 	return strings.to_string(str^)
-}
-
-image :: struct {
-	fourcc: [4]byte,
-	width, height: i64,
-	data: []color,
-	// TODO(viktor): generalize to support rgba etc?
-	// format: color_format, // enum | maybe bits_per_pixel?
-	// data: []byte,
 }
 
 main :: proc () {
@@ -719,7 +712,6 @@ main :: proc () {
 	// defer delete(spheres)
 
 	image: image
-	image.fourcc = "PPM3"
 	image.width = cast(i64)camera.image_size.x
 	image.height = cast(i64)camera.image_size.y
 	image.data   = make([]color, image.width * image.height, context.allocator)
@@ -730,7 +722,7 @@ main :: proc () {
 	str: strings.Builder
 	strings.builder_init(&str, context.allocator)
 	defer strings.builder_destroy(&str)
-	serialized := serialize(&str, image)
+	serialized := serialize_ppm(&str, image)
 
 	fmt.print(serialized)
 }

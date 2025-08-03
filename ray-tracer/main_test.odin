@@ -15,7 +15,6 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	defer delete(spheres)
 
 	image: image
-	image.fourcc = "PPM3"
 	image.width = cast(i64)camera.image_size.x
 	image.height = cast(i64)camera.image_size.y
 	image.data   = make([]color, image.width * image.height, allocator)
@@ -32,7 +31,7 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	strings.builder_init(&str)
 	defer strings.builder_destroy(&str)
 
-	serialized := serialize(&str, image)
+	serialized := serialize_ppm(&str, image)
 
 	fmt.print(serialized)
 
