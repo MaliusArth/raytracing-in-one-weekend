@@ -486,7 +486,7 @@ sphere :: struct {
 	material_index: i64,
 }
 
-render :: proc(render_target: image, camera: camera, materials: []material, spheres : []sphere, $print_progress : bool) {
+render :: proc(image: image, camera: camera, materials: []material, spheres : []sphere, $print_progress : bool) {
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
 	// we position the view plane on the focus plane
@@ -516,17 +516,17 @@ render :: proc(render_target: image, camera: camera, materials: []material, sphe
 	dof_disk_v := camera.up    * dof_radius
 
 	// TODO(viktor): test behavior when sensor size != render target resolution
-	image_width  := cast(int)render_target.width
-	image_height := cast(int)render_target.height
-	pixel_sample_contribution_scale := 1.0 / cast(f64)camera.samples_per_pixel
+	image_width  := cast(int)image.width
+	image_height := cast(int)image.height
+	pixel_sample_contribution_factor := 1.0 / cast(f64)camera.samples_per_pixel
 	for v in 0..<image_height {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
 		for u in 0..<image_width {
-			pixel_color : color
+			pixel_color: color
 			for _ in 0..<camera.samples_per_pixel {
 				// if we include max we may sample the max borders twice with adjacent pixels
 				offset := random_vec2_range(-0.5, 0.5/* +math.F64_EPSILON */)
-				pixel_sample :=
+				pixel_sample_position :=
 					view_plane_top_left_pixel_center +
 					(cast(f64)u + offset.x) * pixel_delta_u +
 					(cast(f64)v + offset.y) * pixel_delta_v
@@ -538,12 +538,12 @@ render :: proc(render_target: image, camera: camera, materials: []material, sphe
 						(dof_sample.x * dof_disk_u) +
 						(dof_sample.y * dof_disk_v)
 				}
-				ray_direction := pixel_sample - ray_origin
-				r := ray{ray_origin, ray_direction}
-				pixel_color += ray_cast(&r, camera.max_ray_bounces, spheres, materials)
+				ray_direction := pixel_sample_position - ray_origin
+				ray := ray{ray_origin, ray_direction}
+				pixel_color += ray_cast(&ray, camera.max_ray_bounces, spheres, materials)
 			}
 			// get final sample
-			pixel_color = pixel_sample_contribution_scale * pixel_color
+			pixel_color = pixel_sample_contribution_factor * pixel_color
 
 			// TODO: move this out in front of serialization as a filter pass?
 			// linear to gamma2 color correction
@@ -552,7 +552,7 @@ render :: proc(render_target: image, camera: camera, materials: []material, sphe
 			pixel_color.b = math.sqrt(pixel_color.b)
 
 			index := u + v * image_width
-			render_target.data[index] = pixel_color
+			image.data[index] = pixel_color
 		}
 	}
 
