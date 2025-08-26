@@ -263,6 +263,7 @@ ray_sphere_intersection :: #force_inline proc "contextless" (
 	return
 }
 
+
 /// materials
 
 material_type :: enum i64 {
@@ -424,26 +425,25 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []
 
 	for _ in 0..=max_ray_bounces {
 		closest_t := math.F64_MAX
-		closest_sphere: ^sphere
-		// closest_sphere_index := -1
+		hit_sphere_index := -1
 		SHADOW_ACNE_RAY_OFFSET :: 0.001
-		for &sphere/* , index */ in spheres {
-			t := ray_sphere_intersection(scattered_ray, sphere.center, sphere.radius, SHADOW_ACNE_RAY_OFFSET, closest_t)
+		for i in 0..<len(spheres) {
+			t := ray_sphere_intersection(scattered_ray, spheres[i].center, spheres[i].radius, SHADOW_ACNE_RAY_OFFSET, closest_t)
 			if t < closest_t {
 				closest_t = t
-				closest_sphere = &sphere
-				// closest_sphere_index = index
+				hit_sphere_index = i
 			}
 		}
 
-		if closest_t < math.F64_MAX {
-			material := &materials[closest_sphere.material_index]
+		if hit_sphere_index >= 0 {
+			sphere := &spheres[hit_sphere_index]
+			material := &materials[sphere.material_index]
 
 			// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
 			closest_hit: hit_record
 			closest_hit.p = scattered_ray.origin + closest_t*scattered_ray.direction
-			closest_hit.normal = (closest_hit.p - closest_sphere.center) / closest_sphere.radius
-			closest_hit.front_face = dot(scattered_ray.direction, closest_hit.normal) < 0
+			closest_hit.normal = (closest_hit.p - sphere.center) / sphere.radius
+			closest_hit.front_face = dot(scattered_ray.direction, closest_hit.normal) < 0.0
 			closest_hit.normal = closest_hit.front_face ? closest_hit.normal : -closest_hit.normal
 
 			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
@@ -456,7 +456,6 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []
 				break
 			}
 		} else {
-			// NOTE(viktor): only needs to be normalized for the background gradient
 			scattered_ray.direction = normalize(scattered_ray.direction)
 			output_color *= background_color(&scattered_ray)
 			break
