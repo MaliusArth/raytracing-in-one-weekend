@@ -419,11 +419,12 @@ background_color :: proc "contextless" (r: ^ray) -> color {
 }
 
 
-ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []material) -> color {
+ray_cast :: proc(r: ^ray, max_ray_bounces: i64, world: ^world) -> color {
 	scattered_ray: ray = r^
 	output_color := color{1, 1, 1}
 
 	for _ in 0..=max_ray_bounces {
+		spheres := world.spheres
 		closest_t := math.F64_MAX
 		hit_sphere_index := -1
 		SHADOW_ACNE_RAY_OFFSET :: 0.001
@@ -437,7 +438,7 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, spheres: []sphere, materials: []
 
 		if hit_sphere_index >= 0 {
 			sphere := &spheres[hit_sphere_index]
-			material := &materials[sphere.material_index]
+			material := &world.materials[sphere.material_index]
 
 			// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
 			closest_hit: hit_record
@@ -490,7 +491,17 @@ sphere :: struct {
 	material_index: i64,
 }
 
-render :: proc(image: image, camera: camera, materials: []material, spheres : []sphere, $print_progress : bool) {
+world :: struct {
+	materials: [dynamic]material,
+	spheres: [dynamic]sphere,
+}
+
+world_destroy :: proc(world: ^world) {
+	delete(world.spheres)
+	delete(world.materials)
+}
+
+render :: proc(image: image, camera: camera, world: ^world, $print_progress : bool) {
 	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
 	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
 	// we position the view plane on the focus plane
@@ -544,10 +555,9 @@ render :: proc(image: image, camera: camera, materials: []material, spheres : []
 				}
 				ray_direction := pixel_sample_position - ray_origin
 				ray := ray{ray_origin, ray_direction}
-				pixel_color += ray_cast(&ray, camera.max_ray_bounces, spheres, materials)
+				pixel_color += ray_cast(&ray, camera.max_ray_bounces, world)
 			}
-			// get final sample
-			pixel_color = pixel_sample_contribution_factor * pixel_color
+			pixel_color *= pixel_sample_contribution_factor
 
 			// TODO: move this out in front of serialization as a filter pass?
 			// linear to gamma2 color correction
@@ -563,8 +573,8 @@ render :: proc(image: image, camera: camera, materials: []material, spheres : []
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
-build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, materials: [dynamic]material, spheres: [dynamic]sphere) {
-	materials = make(type_of(materials), allocator)
+build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, world: world) {
+	materials := make(type_of(world.materials), allocator)
 	/* ground */     append(&materials, material{.lambertian, {albedo={0.8, 0.8, 0.0}}})
 	/* blue */       append(&materials, material{.lambertian, {albedo={0.1, 0.2, 0.5}}})
 	/* glass */      append(&materials, material{.dielectric, {param1=1.5}})
@@ -573,7 +583,7 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, mate
 	// /* silver */     append(&materials, material{.metallic,   make_metallic_data(albedo={0.8, 0.8, 0.8}, fuzz=0.3)})
 
 	// TODO: an associative relation between spheres & materials would be nicer to ensure that changes to the materials order don't affect sphere representation
-	spheres = make(type_of(spheres), allocator)
+	spheres := make(type_of(world.spheres), allocator)
 	append(&spheres, sphere{center={ 0.0, -100.5, -1.0}, radius=100, material_index=0/* ground */})
 	append(&spheres, sphere{center={ 0.0,    0.0, -1.2}, radius=0.5, material_index=1/* blue */})
 	append(&spheres, sphere{center={-1.0,    0.0, -1.0}, radius=0.5, material_index=2/* glass */})
@@ -611,17 +621,17 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, mate
 	camera.samples_per_pixel = 100
 	camera.max_ray_bounces = 50
 
-	return camera, materials, spheres
+	return camera, {materials, spheres}
 }
 
-build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, materials: [dynamic]material, spheres: [dynamic]sphere) {
-	materials = make(type_of(materials), allocator)
+build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, world: world) {
+	materials := make(type_of(world.materials), allocator)
 	append(&materials, material{.lambertian, {albedo={0.5, 0.5, 0.5}}})
 	append(&materials, material{.dielectric, {param1=1.5}})
 	append(&materials, material{.lambertian, {albedo={0.4, 0.2, 0.1}}})
 	append(&materials, material{.metallic,   {albedo={0.7, 0.6, 0.5}, param1=0.0}})
 
-	spheres = make(type_of(spheres), allocator)
+	spheres := make(type_of(world.spheres), allocator)
 	append(&spheres, sphere{center={ 0.0, -1000, 0}, radius=1000, material_index=0})
 	append(&spheres, sphere{center={   0,     1, 0}, radius= 1.0, material_index=1})
 	append(&spheres, sphere{center={  -4,     1, 0}, radius= 1.0, material_index=2})
@@ -663,7 +673,7 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, ma
 	camera.samples_per_pixel = 500
 	camera.max_ray_bounces = 50
 
-	return camera, materials, spheres
+	return camera, {materials, spheres}
 }
 
 serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
@@ -704,11 +714,8 @@ serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
 main :: proc () {
 	rand.reset(1)
 
-	// Scene
-	camera, materials, spheres := build_dev_scene(context.allocator)
-	// defer free_all(context.allocator)
-	// defer for sphere in spheres { free(sphere.material.data) }
-	// defer delete(spheres)
+	camera, world := build_dev_scene(context.allocator)
+	defer world_destroy(&world)
 
 	image: image
 	image.width = cast(i64)camera.image_size.x
@@ -716,7 +723,7 @@ main :: proc () {
 	image.data   = make([]color, image.width * image.height, context.allocator)
 	defer delete(image.data, context.allocator)
 
-	render(image, camera, materials[:], spheres[:], true)
+	render(image, camera, &world, true)
 
 	str: strings.Builder
 	strings.builder_init(&str, context.allocator)
