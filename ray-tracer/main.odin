@@ -8,62 +8,53 @@ import "core:strings"
 
 /// types
 
-f64x2  :: [2]f64
-f64x3  :: [3]f64
-i64x2  :: [2]i64
-intx2  :: [2]int
-v3     :: f64x3
-vec3   :: f64x3
-point3 :: f64x3
-color  :: f64x3
-v2     :: f64x2
-vec2   :: f64x2
-turns  :: f64 // [0, 1]
-// turns :: distinct f64 // [0, 1]
+v3    :: [3]f64
+v2    :: [2]f64
+turns :: distinct f64 // [0, 1]
 // radians :: distinct f64 // [0, math.TAU]
-turns_to_radians :: proc "contextless" (θ: turns) -> f64 { return θ * math.TAU }
+turns_to_radians :: proc "contextless" (θ: turns) -> f64 { return cast(f64)θ * math.TAU }
 
 
 /// linalg
 
-dot :: proc "contextless" (a, b: vec3) -> f64 {
+dot :: proc "contextless" (a, b: v3) -> f64 {
 	return a.x*b.x + a.y*b.y + a.z*b.z
 }
 
-cross :: proc "contextless" (a, b: vec3) -> vec3 {
-	result: vec3
+cross :: proc "contextless" (a, b: v3) -> v3 {
+	result: v3
 	result[0] = a[1]*b[2] - b[1]*a[2]
 	result[1] = a[2]*b[0] - b[2]*a[0]
 	result[2] = a[0]*b[1] - b[0]*a[1]
 	return result
 }
 
-magnitude_squared :: proc "contextless" (vec: vec3) -> f64 {
+magnitude_squared :: proc "contextless" (vec: v3) -> f64 {
 	return dot(vec, vec)
 }
 
-magnitude :: proc "contextless" (vec: vec3) -> f64 {
+magnitude :: proc "contextless" (vec: v3) -> f64 {
 	return math.sqrt(magnitude_squared(vec))
 }
 
-normalize :: proc "contextless" (vec: vec3) -> vec3 {
+normalize :: proc "contextless" (vec: v3) -> v3 {
 	return vec / magnitude(vec)
 }
 
-is_near_zero :: proc "contextless" (vec: vec3) -> bool {
+is_near_zero :: proc "contextless" (vec: v3) -> bool {
 	EPSILON :: 1e-8
 	return (math.abs(vec.x) <= EPSILON &&
 	        math.abs(vec.y) <= EPSILON &&
 	        math.abs(vec.z) <= EPSILON)
 }
 
-is_normalized :: proc "contextless" (vec: vec3) -> bool {
+is_normalized :: proc "contextless" (vec: v3) -> bool {
 	EPSILON :: 1e-10
 	mag2 := magnitude_squared(vec)
 	return 1-EPSILON <= mag2 && mag2 <= 1+EPSILON
 }
 
-lookat :: proc "contextless" (position: point3 = {}, target: point3 = {0, 0, -1}, axis_up: vec3 = {0, 1, 0}) -> (right, up, forward: vec3) {
+lookat :: proc "contextless" (position: v3 = {}, target: v3 = {0, 0, -1}, axis_up: v3 = {0, 1, 0}) -> (right, up, forward: v3) {
 	// view cartesian coordinate system
 	forward = normalize(target - position)
 	right   = normalize(cross(forward, axis_up))
@@ -75,7 +66,7 @@ lookat :: proc "contextless" (position: point3 = {}, target: point3 = {0, 0, -1}
 /// ray tracing
 
 // ![reflection](https://raytracing.github.io/images/fig-1.15-reflection.jpg|width=200)
-reflect :: proc "contextless" (vec, normal: vec3) -> vec3 {
+reflect :: proc "contextless" (vec, normal: v3) -> v3 {
 	// vec & normal don't need to be normalized
 	return vec-2*dot(vec, normal)*normal
 }
@@ -133,7 +124,7 @@ reflectance_schlick_approximation :: proc "contextless" (cos_i, r0: f64) -> f64 
 reflectance_schlick_lazanyi_approximation :: proc "contextless" (cos_i, r0: f64, a: f64, alpha: f64) -> f64 {
 	return reflectance_schlick_approximation(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha)
 }
-// reflectance_schlick_lazanyi_approximation :: proc(r0: vec3, cos_i: float, a: vec3, alpha: float) -> f64 {
+// reflectance_schlick_lazanyi_approximation :: proc(r0: v3, cos_i: float, a: v3, alpha: float) -> f64 {
 // 	return schlickFresnel(r0, cos_i) - a * cos_i * math.pow(1 - cos_i, alpha);
 // }
 
@@ -146,12 +137,12 @@ reflectance_hoffman_approximation :: proc "contextless" (cos_i, r0, h: f64) -> f
 
 // * src_refractive_index: refractive index of the medium the light is exiting, aka. incident refractive index
 // * dst_refractive_index: refractive index of the medium the light is entering, aka. transmitted refractive index
-refract_with_reference_medium :: proc(vec, normal: vec3, src_refractive_index, dst_refractive_index: f64) -> vec3 {
+refract_with_reference_medium :: proc(vec, normal: v3, src_refractive_index, dst_refractive_index: f64) -> v3 {
 	return refract_with_relative_refractive_index(vec, normal, src_refractive_index / dst_refractive_index)
 }
 
 // ![refraction](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
-refract_with_relative_refractive_index :: proc(vec, normal: vec3, relative_refractive_index: f64) -> vec3 {
+refract_with_relative_refractive_index :: proc(vec, normal: v3, relative_refractive_index: f64) -> v3 {
 	// contract: vec & normal are expected to be normalized
 	// contract: can_refract := (rel_refractive_index * sin_theta) <= 1.0
 	fmt.assertf(is_normalized(vec),    "vector needs to be normalized! %v", magnitude_squared(vec))
@@ -179,23 +170,23 @@ refract :: proc { refract_with_reference_medium, refract_with_relative_refractiv
 
 /// random
 
-random_vec3 :: proc(gen := context.random_generator) -> vec3 {
+random_v3 :: proc(gen := context.random_generator) -> v3 {
 	return {rand.float64(gen), rand.float64(gen), rand.float64(gen)}
 }
 
-random_vec3_range :: proc(min, max : f64, gen := context.random_generator) -> vec3 {
+random_v3_range :: proc(min, max : f64, gen := context.random_generator) -> v3 {
 	return {rand.float64_range(min, max, gen), rand.float64_range(min, max, gen), rand.float64_range(min, max, gen)}
 }
 
 // Returns the vector to a random point in the [min,min]-[max,max] square.
-random_vec2_range :: proc(min, max : f64, gen := context.random_generator) -> vec3 {
+random_v2_range :: proc(min, max : f64, gen := context.random_generator) -> v3 {
 	return {rand.float64_range(min, max, gen), rand.float64_range(min, max, gen), 0}
 }
 
-random_unit_vector :: proc(gen := context.random_generator) -> vec3 {
+random_unit_vector :: proc(gen := context.random_generator) -> v3 {
 	// rejection sampling to ensure normal distribution
 	for {
-		p := random_vec3_range(-1, 1 + math.F64_EPSILON, gen) // excl. max
+		p := random_v3_range(-1, 1 + math.F64_EPSILON, gen) // excl. max
 		length_squared := magnitude_squared(p)
 		if 0 < length_squared && length_squared <= 1 {
 			return p / math.sqrt(length_squared)
@@ -203,7 +194,7 @@ random_unit_vector :: proc(gen := context.random_generator) -> vec3 {
 	}
 }
 
-random_point_on_hemisphere :: proc(normal: vec3, gen := context.random_generator) -> vec3 {
+random_point_on_hemisphere :: proc(normal: v3, gen := context.random_generator) -> v3 {
 	on_unit_sphere := random_unit_vector()
 	if dot(on_unit_sphere, normal) > 0.0 { // In the same hemisphere as the normal
 		return on_unit_sphere
@@ -212,10 +203,10 @@ random_point_on_hemisphere :: proc(normal: vec3, gen := context.random_generator
 	}
 }
 
-random_point_on_disk :: proc(gen := context.random_generator) -> point3 {
+random_point_on_disk :: proc(gen := context.random_generator) -> v3 {
 	// rejection sampling to ensure normal distribution
 	for {
-		p := random_vec2_range(-1, 1 + math.F64_EPSILON) // excl. max
+		p := random_v2_range(-1, 1 + math.F64_EPSILON) // excl. max
 		length_squared := magnitude_squared(p)
 		if length_squared <= 1 {
 			return p
@@ -227,19 +218,19 @@ random_point_on_disk :: proc(gen := context.random_generator) -> point3 {
 /// raycast
 
 ray :: struct {
-	origin : point3,
-	direction : vec3,
+	origin : v3,
+	direction : v3,
 }
 
 hit_record :: struct {
-	p : point3,
-	normal : vec3,
+	p : v3,
+	normal : v3,
 	front_face : bool,
 }
 
 // returns value in range [t_min, t_max) or t_max if no hit
 ray_sphere_intersection :: #force_inline proc "contextless" (
-	r: ray, sphere_center: point3, sphere_radius: f64, t_min: f64 = 0, t_max: f64 = math.F64_MAX) -> (t: f64) {
+	r: ray, sphere_center: v3, sphere_radius: f64, t_min: f64 = 0, t_max: f64 = math.F64_MAX) -> (t: f64) {
 
 	t = t_max
 
@@ -273,11 +264,11 @@ material_type :: enum i64 {
 }
 
 material_data :: struct {
-	albedo: color,
+	albedo: v3,
 	param1: f64, // fuzz for metal, refractive_index for dielectric
 }
 
-make_metallic_data :: proc(albedo: color, fuzz: f64) -> material_data {
+make_metallic_data :: proc(albedo: v3, fuzz: f64) -> material_data {
 	assert(0 <= fuzz && fuzz <= 1.0)
 	// data^ = {albedo, math.clamp(fuzz, 0.0, 1.0)}
 	return {albedo=albedo, param1=fuzz}
@@ -291,7 +282,7 @@ material :: struct {
 
 // ![](https://raytracing.github.io/images/fig-1.14-rand-unitvec.jpg|width=200)
 lambertian_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
-                       (ray_out: ray, attenuation: color, ok: bool) {
+                       (ray_out: ray, attenuation: v3, ok: bool) {
 	// Lambertian (diffuse) reflectance can either
 	//  * always scatter and attenuate light according to its reflectance R,
 	//  * or it can sometimes scatter (with probability 1−R) with no attenuation (where a ray that isn't scattered is just absorbed into the material).
@@ -314,7 +305,7 @@ lambertian_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
 
 // ![](https://raytracing.github.io/images/fig-1.16-reflect-fuzzy.jpg|width=200)
 metallic_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
-					 (ray_out: ray, attenuation: color, ok: bool) {
+					 (ray_out: ray, attenuation: v3, ok: bool) {
 	albedo := data.albedo
 	fuzz := data.param1
 
@@ -345,7 +336,7 @@ metallic_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
 		}
 
 		// refraction_color*refraction_factor + reflection_color*reflection_factor
-		attenuation = math.lerp(albedo, color{1, 1, 1}, reflection_factor)
+		attenuation = math.lerp(albedo, {1.0, 1.0, 1.0}, reflection_factor)
 	} else {
 		attenuation = albedo
 	}
@@ -354,7 +345,7 @@ metallic_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) ->
 }
 
 // ![](https://raytracing.github.io/images/fig-1.17-refraction.jpg|width=200)
-dielectric_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: color, ok: bool) {
+dielectric_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) -> (ray_out: ray, attenuation: v3, ok: bool) {
 	refractive_index := data.param1
 
 	// materials with a refractive_index < 1 (air/vaccuum) are treated as air/vaccuum materials
@@ -386,7 +377,7 @@ dielectric_proc :: proc(data: material_data, ray_in: ^ray, hit: ^hit_record) -> 
 	// determine if angle is beyond critical angle for total internal reflection
 	must_reflect := (rel_refractive_index*rel_refractive_index * sin_theta_squared) > 1.0
 	// must_reflect := (rel_refractive_index * sin_theta) > 1.0
-	output_direction: vec3
+	output_direction: v3
 
 	if must_reflect || reflectance_schlick_approximation(cos_theta, reflectance_at_normal_incidence(rel_refractive_index)) > rand.float64() {
 		output_direction = reflect(unit_direction, hit.normal)
@@ -410,18 +401,18 @@ material_scatter :: proc(material: material, ray_in: ^ray, hit: ^hit_record) -> 
 	unreachable()
 }
 
-background_color :: proc "contextless" (r: ^ray) -> color {
+background_color :: proc "contextless" (r: ^ray) -> v3 {
 	// linear gradient between a and b
-	a := color{1.0, 1.0, 1.0}
-	b := color{0.5, 0.7, 1.0}
+	a := v3{1.0, 1.0, 1.0}
+	b := v3{0.5, 0.7, 1.0}
 	t := 0.5 * (r.direction.y + 1.0)
 	return math.lerp(a, b, t)
 }
 
 
-ray_cast :: proc(r: ^ray, max_ray_bounces: i64, world: ^world) -> color {
+ray_cast :: proc(r: ^ray, max_ray_bounces: i64, world: ^world) -> v3 {
 	scattered_ray: ray = r^
-	output_color := color{1, 1, 1}
+	output_color := v3{1, 1, 1}
 
 	for _ in 0..=max_ray_bounces {
 		spheres := world.spheres
@@ -467,17 +458,17 @@ ray_cast :: proc(r: ^ray, max_ray_bounces: i64, world: ^world) -> color {
 
 image :: struct {
 	width, height: i64,
-	data: []color,
+	data: []v3,
 }
 
 camera :: struct {
-	position : point3,
-	right: vec3,
-	up: vec3,
-	forward: vec3,
+	position : v3,
+	right: v3,
+	up: v3,
+	forward: v3,
 	// orientation : quaternion256,
 	aspect_ratio : f64,
-	image_size : vec2,
+	image_size : v2,
 	focus_distance: f64,
 	vfov : turns, // using Hor+ scaling
 	depth_of_field_angle: turns,
@@ -486,7 +477,7 @@ camera :: struct {
 }
 
 sphere :: struct {
-	center : vec3,
+	center : v3,
 	radius : f64,
 	material_index: i64,
 }
@@ -537,10 +528,10 @@ render :: proc(image: image, camera: camera, world: ^world, $print_progress : bo
 	for v in 0..<image_height {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", image_height - v)
 		for u in 0..<image_width {
-			pixel_color: color
+			pixel_color: v3
 			for _ in 0..<camera.samples_per_pixel {
 				// if we include max we may sample the max borders twice with adjacent pixels
-				offset := random_vec2_range(-0.5, 0.5/* +math.F64_EPSILON */)
+				offset := random_v2_range(-0.5, 0.5/* +math.F64_EPSILON */)
 				pixel_sample_position :=
 					view_plane_top_left_pixel_center +
 					(cast(f64)u + offset.x) * pixel_delta_u +
@@ -639,18 +630,18 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, wo
 
 	for a in -11..<11 {
 		for b in -11..<11 {
-			center := point3{cast(f64)a + 0.9 * rand.float64(), 0.2, cast(f64)b + 0.9 * rand.float64()}
+			center := v3{cast(f64)a + 0.9 * rand.float64(), 0.2, cast(f64)b + 0.9 * rand.float64()}
 
-			if magnitude(center - point3{4, 0.2, 0}) > 0.9 {
+			if magnitude(center - v3{4, 0.2, 0}) > 0.9 {
 				choose_mat := rand.float64()
 				if choose_mat < 0.8 {
 					// diffuse
-					albedo := random_vec3()*random_vec3()
+					albedo := random_v3()*random_v3()
 					append(&materials, material{.lambertian, {albedo=albedo}})
 					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
 				} else if choose_mat < 0.95 {
 					// metal
-					albedo := random_vec3_range(0.5, 1)
+					albedo := random_v3_range(0.5, 1)
 					fuzz := rand.float64_range(0, 0.5)
 					append(&materials, material{.metallic, make_metallic_data(albedo, fuzz)})
 					append(&spheres, sphere{center=center, radius=0.2, material_index=cast(i64)len(materials)-1})
@@ -680,7 +671,7 @@ serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
 	fmt.sbprintfln(str, "P3\n%v %v\n255", image.width, image.height)
 	header_size := cast(i64)len(str.buf)
 	CHARS_PER_CHANNEL :: 4
-	non_zero_resize_dynamic_array(&str.buf, header_size + image.width * image.height * CHARS_PER_CHANNEL * len(color))
+	non_zero_resize_dynamic_array(&str.buf, header_size + image.width * image.height * CHARS_PER_CHANNEL * len(v3))
 
 	serialize_channel :: proc(dst: []byte, u: u8, separator: byte) {
 		dst[0] = '0' + ((u / 100) % 10)
@@ -693,7 +684,7 @@ serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
 		dst[1] = dst[0]==' ' && dst[1]=='0' ? ' ' : dst[1]
 	}
 
-	output_stride := CHARS_PER_CHANNEL * len(color)
+	output_stride := CHARS_PER_CHANNEL * len(v3)
 	output_slice := str.buf[header_size:]
 	for pixel, i in image.data {
 		// quantize [0.0,1.0] float values to [0,255] byte range.
@@ -720,7 +711,7 @@ main :: proc () {
 	image: image
 	image.width = cast(i64)camera.image_size.x
 	image.height = cast(i64)camera.image_size.y
-	image.data   = make([]color, image.width * image.height, context.allocator)
+	image.data   = make([]v3, image.width * image.height, context.allocator)
 	defer delete(image.data, context.allocator)
 
 	render(image, camera, &world, true)

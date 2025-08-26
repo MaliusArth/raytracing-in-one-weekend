@@ -10,20 +10,19 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	// fmt.eprintfln("Rounds: %v", options.rounds)
 	// log.infof("Rounds: %v", options.rounds)
 
-	camera, materials, spheres := build_dev_scene(allocator)
-	defer delete(materials)
-	defer delete(spheres)
+	camera, world := build_dev_scene(allocator)
+	defer world_destroy(&world)
 
 	image: image
 	image.width = cast(i64)camera.image_size.x
 	image.height = cast(i64)camera.image_size.y
-	image.data   = make([]color, image.width * image.height, allocator)
+	image.data   = make([]v3, image.width * image.height, allocator)
 	defer delete(image.data, allocator)
 
 	options.bytes = len(image.data)
 	for round in 1..=options.rounds {
 		fmt.eprintf("\rRound %v/%v", round, options.rounds)
-			render(image, camera, materials[:], spheres[:], false)
+			render(image, camera, &world, false)
 	}
 	fmt.eprintln("\rDone.        ")
 
