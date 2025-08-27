@@ -409,53 +409,6 @@ background_color :: proc "contextless" (r: ^ray) -> v3 {
 	return math.lerp(a, b, t)
 }
 
-
-ray_cast :: proc(r: ^ray, max_ray_bounces: i64, world: ^world) -> v3 {
-	scattered_ray: ray = r^
-	output_color := v3{1, 1, 1}
-
-	for _ in 0..=max_ray_bounces {
-		spheres := world.spheres
-		closest_t := math.F64_MAX
-		hit_sphere_index := -1
-		SHADOW_ACNE_RAY_OFFSET :: 0.001
-		for i in 0..<len(spheres) {
-			t := ray_sphere_intersection(scattered_ray, spheres[i].center, spheres[i].radius, SHADOW_ACNE_RAY_OFFSET, closest_t)
-			if t < closest_t {
-				closest_t = t
-				hit_sphere_index = i
-			}
-		}
-
-		if hit_sphere_index >= 0 {
-			sphere := &spheres[hit_sphere_index]
-			material := &world.materials[sphere.material_index]
-
-			// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
-			closest_hit: hit_record
-			closest_hit.p = scattered_ray.origin + closest_t*scattered_ray.direction
-			closest_hit.normal = (closest_hit.p - sphere.center) / sphere.radius
-			closest_hit.front_face = dot(scattered_ray.direction, closest_hit.normal) < 0.0
-			closest_hit.normal = closest_hit.front_face ? closest_hit.normal : -closest_hit.normal
-
-			// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
-			// TODO(viktor): instead of including material types in the materials array encode the info in sphere.material_index via bit-shifting
-			if material_ray, attenuation, ok := material_scatter(material^, &scattered_ray, &closest_hit); ok {
-				scattered_ray = material_ray
-				output_color *= attenuation
-			} else {
-				output_color = {0,0,0}
-				break
-			}
-		} else {
-			scattered_ray.direction = normalize(scattered_ray.direction)
-			output_color *= background_color(&scattered_ray)
-			break
-		}
-	}
-	return output_color
-}
-
 image :: struct {
 	width, height: i64,
 	data: []v3,
@@ -546,7 +499,48 @@ render :: proc(image: image, camera: camera, world: ^world, $print_progress : bo
 				}
 				ray_direction := pixel_sample_position - ray_origin
 				ray := ray{ray_origin, ray_direction}
-				pixel_color += ray_cast(&ray, camera.max_ray_bounces, world)
+				sample_color := v3{1, 1, 1}
+				ray_cast: for _ in 0..=camera.max_ray_bounces {
+					spheres := world.spheres
+					closest_t := math.F64_MAX
+					hit_sphere_index := -1
+					SHADOW_ACNE_RAY_OFFSET :: 0.001
+					for i in 0..<len(spheres) {
+						t := ray_sphere_intersection(ray, spheres[i].center, spheres[i].radius, SHADOW_ACNE_RAY_OFFSET, closest_t)
+						if t < closest_t {
+							closest_t = t
+							hit_sphere_index = i
+						}
+					}
+
+					if hit_sphere_index >= 0 {
+						sphere := &spheres[hit_sphere_index]
+						material := &world.materials[sphere.material_index]
+
+						// TODO: maybe move this all the way into the concrete scatter function so this stuff is only calculated if actually needed
+						closest_hit: hit_record
+						closest_hit.p = ray.origin + closest_t*ray.direction
+						closest_hit.normal = (closest_hit.p - sphere.center) / sphere.radius
+						closest_hit.front_face = dot(ray.direction, closest_hit.normal) < 0.0
+						closest_hit.normal = closest_hit.front_face ? closest_hit.normal : -closest_hit.normal
+
+						// TODO(viktor): @perf: return info whether the ray is inside a sphere and check that sphere first in the next iteration (a bvh would also achieve this)
+						// TODO(viktor): instead of including material types in the materials array encode the info in sphere.material_index via bit-shifting
+						if scattered_ray, attenuation, ok := material_scatter(material^, &ray, &closest_hit); ok {
+							ray = scattered_ray
+							sample_color *= attenuation
+						} else {
+							sample_color = {0,0,0}
+							break ray_cast
+						}
+					} else {
+						// NOTE(viktor): only needs to be normalized for the background gradient (dielectric_proc also does it though)
+						ray.direction = normalize(ray.direction)
+						sample_color *= background_color(&ray)
+						break ray_cast
+					}
+				}
+				pixel_color += sample_color
 			}
 			pixel_color *= pixel_sample_contribution_factor
 
