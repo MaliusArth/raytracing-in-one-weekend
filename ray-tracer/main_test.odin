@@ -22,7 +22,11 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	options.bytes = len(image.data)
 	for round in 1..=options.rounds {
 		fmt.eprintf("\rRound %v/%v", round, options.rounds)
-			render(image, camera, &world, false)
+		if !RENDER_MULTITHREADED { // run-time check due to lack of conditional imports
+			render_region(image, {0, 0, image.width, image.height}, camera, &world, false)
+		} else {
+			render_tiled(image, camera, &world, false)
+		}
 	}
 	fmt.eprintln("\rDone.        ")
 
@@ -52,7 +56,7 @@ benchmark_materials :: proc(t: ^testing.T) {
 	{
 		name := "materials"
 		options := &time.Benchmark_Options{
-			rounds   = 1,
+			rounds   = 100,
 			setup    = nil,
 			bench    = bench_materials,
 			teardown = nil,
