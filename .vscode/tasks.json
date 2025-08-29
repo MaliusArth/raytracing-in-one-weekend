@@ -26,53 +26,48 @@
     },
     "type": "shell",
     "tasks": [
-        {
-            "label": "build debug file",
-            "command": "build debug ${relativeFile} -file",
-        },
-        {
-            "label": "build release file",
-            "command": "build release ${relativeFile} -file",
-        },
-        {
-            "label": "debug file",
-            "command": "debug ${relativeFile}",
-            "dependsOn": "build debug file",
-        },
-        {
-            "label": "build debug",
-            "command": "build debug ${workspaceFolderBasename}",
-        },
-        {
-            "label": "build release",
-            "command": "build release ${workspaceFolderBasename}",
-        },
-        {
-            "label": "debug",
-            "command": "debug ${workspaceFolderBasename} ${relativeFile}",
-            "dependsOn": "build debug",
-        },
-        {
-            "label": "build debug & run",
-            "command": "md .\\out 2>nul & build debug ${workspaceFolderBasename} -run 1> .\\out\\image.ppm",
-        },
-        {
-            "label": "build release & run",
-            "command": "md .\\out 2>nul & build release ${workspaceFolderBasename} -run 1> .\\out\\image.ppm",
-        },
-        {
-            "label": "run",
-            "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe 1> .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
-        },
-        // {
-        //     "label": "build debug & run",
-        //     "command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe 1> .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav",
-        //     "dependsOn": "build debug",
-        // },
-        {
-            "label": "test",
-            "group": "test",
-            "command": "build fast ${workspaceFolderBasename} -test 1> .\\out\\test.ppm",
-        }
-    ],
+		{
+			"label": "build debug file",
+			"command": "build debug ${relativeFile} -file"
+		},
+		{
+			"label": "build release file",
+			"command": "build release ${relativeFile} -file"
+		},
+		{
+			"label": "debug file",
+			"command": "debug ${relativeFile}",
+			"dependsOn": "build debug file"
+		},
+		{
+			"label": "build debug",
+			"command": "build debug ${workspaceFolderBasename}"
+		},
+		{
+			"label": "build release",
+			"command": "build release ${workspaceFolderBasename}"
+		},
+		{
+			"label": "debug",
+			"command": "debug ${workspaceFolderBasename} ${relativeFile}",
+			"dependsOn": "build debug"
+		},
+		{
+			"label": "build debug & run",
+			"command": "md .\\out 2>nul & build debug ${workspaceFolderBasename} -run 1> .\\out\\image.ppm"
+		},
+		{
+			"label": "build release & run",
+			"command": "md .\\out 2>nul & build release ${workspaceFolderBasename} -run 1> .\\out\\image.ppm"
+		},
+		{
+			"label": "run",
+			"command": "md .\\out 2>nul & .\\bin\\${workspaceFolderBasename}.exe 1> .\\out\\image.ppm & start /b cmd /c call .\\misc\\spplayer.bat C:\\Windows\\Media\\tada.wav"
+		},
+		{
+			"label": "test",
+			"group": "test",
+			"command": "build fast ${workspaceFolderBasename} -test 1> .\\out\\test.ppm"
+		}
+	],
 }
