@@ -590,6 +590,100 @@ render_region :: proc(image: image, region: rect, camera_render_data: camera_ren
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
+task_data :: struct {
+	camera_render_data: camera_render_data,
+	world: world,
+	image: image,
+	region: rect,
+	seed: i64,
+}
+
+// print_mutex: sync.Mutex
+worker_thread :: proc(task: thread.Task) {
+	data := cast(^task_data)(task.data)
+
+	// if sync.mutex_guard(&print_mutex) {
+	// 	fmt.eprintfln("task %v: region: %v, seed: %v", task.user_index, data.region, data.seed,)
+	// }
+
+	render_region(data.image, data.region, data.camera_render_data, data.world, false)
+}
+
+@(require_results)
+get_cache_line_size :: proc() -> u16 {
+	length : windows.DWORD = 0
+	result := windows.GetLogicalProcessorInformation(nil, &length)
+
+	lineSize: u16
+	if !result && windows.GetLastError() == 122 && length > 0 {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+		processors := make([]windows.SYSTEM_LOGICAL_PROCESSOR_INFORMATION, length, context.temp_allocator)
+
+		result = windows.GetLogicalProcessorInformation(&processors[0], &length)
+		if result {
+			for processor in processors {
+				if processor.Relationship == .RelationCache && processor.Cache.Level == 1 {
+					lineSize = processor.Cache.LineSize
+				}
+			}
+		}
+	}
+
+	return lineSize
+}
+
+render_tiled :: proc(image: image, camera_render_data: camera_render_data, world: world, $print_progress : bool) {
+	when print_progress do fmt.eprintfln("rendering multithreaded")
+	when print_progress do fmt.eprintfln("image: %v, %v", image.width, image.height)
+	thread_count := os.processor_core_count()
+	// fmt.eprintfln("cache line size: %v", get_cache_line_size()) // 64
+	tile_width := image.width / cast(i64)thread_count
+	// should fit in or be a multiple of a cache line (usually 64 bytes)
+	// 192 bytes are 3 cachelines and perfectly fits 8 pixels yet it somehow isn't the fastest...?
+	tile_width = cast(i64)get_cache_line_size()/size_of(v3)
+	tile_height := tile_width
+	tile_count_x := (image.width  + tile_width  - 1) / tile_width
+	tile_count_y := (image.height + tile_height - 1) / tile_height
+	total_tile_count := tile_count_x * tile_count_y
+
+	pool: thread.Pool
+	// NOTE(viktor): thread_count-1 because the main thread also participates in the work
+	thread.pool_init(&pool, context.allocator, thread_count-1)
+	defer thread.pool_destroy(&pool)
+
+	task_data_slots: []task_data = make([]task_data, total_tile_count, context.allocator)
+	defer delete(task_data_slots)
+
+	for tile_y in 0..< tile_count_y {
+		min_y := tile_y*tile_height
+		one_past_max_y := min_y+tile_height
+		if one_past_max_y > image.height {
+			one_past_max_y = image.height
+		}
+		for tile_x in 0..< tile_count_x {
+			min_x := tile_x*tile_width
+			one_past_max_x := min_x+tile_width
+			if one_past_max_x > image.width {
+				one_past_max_x = image.width
+			}
+
+			index := tile_x + tile_count_x * tile_y
+			fmt.assertf(index < total_tile_count, "%v => %v!/n", index, total_tile_count)
+
+			task_data_slots[index].camera_render_data = camera_render_data
+			task_data_slots[index].world = world
+			task_data_slots[index].image = image
+			task_data_slots[index].region = {min_x, min_y, one_past_max_x, one_past_max_y}
+			task_data_slots[index].seed = cast(i64)rand.uint64(context.random_generator)
+
+			thread.pool_add_task(&pool, context.allocator, worker_thread, &task_data_slots[index], cast(int)index)
+		}
+	}
+
+	thread.pool_start(&pool)
+	thread.pool_finish(&pool)
+}
+
 build_dev_scene :: proc(allocator := context.allocator) -> (camera_settings: camera_settings, world: world) {
 	materials := make(type_of(world.materials), allocator)
 	/* ground */     append(&materials, material{.lambertian, {albedo={0.8, 0.8, 0.0}}})
@@ -727,104 +821,6 @@ serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
 	}
 
 	return strings.to_string(str^)
-}
-
-task_data :: struct {
-	// TODO: move this out since it is shared readonly data, make accessible differently instead maybe?
-	// ray_per_pixel: i64, // read-only in threads // TODO: same as camera.samples_per_pixel
-	// max_bounce_count: i64, // read-only in threads // TODO: same as camera.max_ray_bounce_count
-
-	camera_render_data: camera_render_data,
-	world: world,
-	image: image,
-	region: rect,
-	seed: i64,
-}
-
-// print_mutex: sync.Mutex
-worker_thread :: proc(task: thread.Task) {
-	data := cast(^task_data)(task.data)
-
-	// if sync.mutex_guard(&print_mutex) {
-	// 	fmt.eprintfln("task %v: region: %v, seed: %v", task.user_index, data.region, data.seed,)
-	// }
-
-	render_region(data.image, data.region, data.camera_render_data, data.world, false)
-}
-
-@(require_results)
-get_cache_line_size :: proc() -> u16 {
-	length : windows.DWORD = 0
-	result := windows.GetLogicalProcessorInformation(nil, &length)
-
-	lineSize: u16
-	if !result && windows.GetLastError() == 122 && length > 0 {
-		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-		processors := make([]windows.SYSTEM_LOGICAL_PROCESSOR_INFORMATION, length, context.temp_allocator)
-
-		result = windows.GetLogicalProcessorInformation(&processors[0], &length)
-		if result {
-			for processor in processors {
-				if processor.Relationship == .RelationCache && processor.Cache.Level == 1 {
-					lineSize = processor.Cache.LineSize
-				}
-			}
-		}
-	}
-
-	return lineSize
-}
-
-render_tiled :: proc(image: image, camera_render_data: camera_render_data, world: world, $print_progress : bool) {
-	when print_progress do fmt.eprintfln("rendering multithreaded")
-	when print_progress do fmt.eprintfln("image: %v, %v", image.width, image.height)
-	thread_count := os.processor_core_count()
-	// fmt.eprintfln("cache line size: %v", get_cache_line_size()) // 64
-	tile_width := image.width / cast(i64)thread_count
-	// should fit in or be a multiple of a cache line (usually 64 bytes)
-	// 192 bytes are 3 cachelines and perfectly fits 8 pixels yet it somehow isn't the fastest...?
-	tile_width = cast(i64)get_cache_line_size()/size_of(v3)
-	tile_height := tile_width
-	tile_count_x := (image.width  + tile_width  - 1) / tile_width
-	tile_count_y := (image.height + tile_height - 1) / tile_height
-	total_tile_count := tile_count_x * tile_count_y
-
-	pool: thread.Pool
-	// NOTE(viktor): thread_count-1 because the main thread also participates in the work
-	thread.pool_init(&pool, context.allocator, thread_count-1)
-	defer thread.pool_destroy(&pool)
-
-	task_data_slots: []task_data = make([]task_data, total_tile_count, context.allocator)
-	defer delete(task_data_slots)
-
-	for tile_y in 0..< tile_count_y {
-		min_y := tile_y*tile_height
-		one_past_max_y := min_y+tile_height
-		if one_past_max_y > image.height {
-			one_past_max_y = image.height
-		}
-		for tile_x in 0..< tile_count_x {
-			min_x := tile_x*tile_width
-			one_past_max_x := min_x+tile_width
-			if one_past_max_x > image.width {
-				one_past_max_x = image.width
-			}
-
-			index := tile_x + tile_count_x * tile_y
-			fmt.assertf(index < total_tile_count, "%v => %v!/n", index, total_tile_count)
-
-			task_data_slots[index].camera_render_data = camera_render_data
-			task_data_slots[index].world = world
-			task_data_slots[index].image = image
-			task_data_slots[index].region = {min_x, min_y, one_past_max_x, one_past_max_y}
-			task_data_slots[index].seed = cast(i64)rand.uint64(context.random_generator)
-
-			thread.pool_add_task(&pool, context.allocator, worker_thread, &task_data_slots[index], cast(int)index)
-		}
-	}
-
-	thread.pool_start(&pool)
-	thread.pool_finish(&pool)
 }
 
 main :: proc () {
