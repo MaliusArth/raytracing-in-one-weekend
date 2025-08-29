@@ -10,22 +10,24 @@ proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: 
 	// fmt.eprintfln("Rounds: %v", options.rounds)
 	// log.infof("Rounds: %v", options.rounds)
 
-	camera, world := build_dev_scene(allocator)
+	camera_settings, world := build_dev_scene(allocator)
 	defer world_destroy(&world)
 
 	image: image
-	image.width = cast(i64)camera.image_size.x
-	image.height = cast(i64)camera.image_size.y
+	image.width = cast(i64)camera_settings.image_size.x
+	image.height = cast(i64)camera_settings.image_size.y
 	image.data   = make([]v3, image.width * image.height, allocator)
 	defer delete(image.data, allocator)
+
+	camera_render_data := calculate_camera_render_data(camera_settings)
 
 	options.bytes = len(image.data)
 	for round in 1..=options.rounds {
 		fmt.eprintf("\rRound %v/%v", round, options.rounds)
 		if !RENDER_MULTITHREADED { // run-time check due to lack of conditional imports
-			render_region(image, {0, 0, image.width, image.height}, camera, &world, false)
+			render_region(image, {0, 0, image.width, image.height}, camera_render_data, world, false)
 		} else {
-			render_tiled(image, camera, &world, false)
+			render_tiled(image, camera_render_data, world, false)
 		}
 	}
 	fmt.eprintln("\rDone.        ")

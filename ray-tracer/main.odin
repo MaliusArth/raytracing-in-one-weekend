@@ -422,7 +422,7 @@ image :: struct {
 	data: []v3,
 }
 
-camera :: struct {
+camera_settings :: struct {
 	position : v3,
 	right: v3,
 	up: v3,
@@ -435,6 +435,53 @@ camera :: struct {
 	depth_of_field_angle: turns,
 	samples_per_pixel : i64,
 	max_ray_bounces : i64,
+}
+
+camera_render_data :: struct {
+	position: v3,
+	pixel_delta_u, pixel_delta_v: v3,
+	view_plane_top_left_pixel_center: v3,
+	dof_disk_u, dof_disk_v: v3,
+	depth_of_field_angle: turns,
+	samples_per_pixel: i64,
+	max_ray_bounces: i64,
+}
+
+calculate_camera_render_data :: proc(camera_settings: camera_settings) -> (camera_render_data: camera_render_data) {
+	camera_render_data.position = camera_settings.position
+
+	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
+	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
+	// we position the view plane on the focus plane
+	view_plane_half_size: v2
+	view_plane_half_size.y = camera_settings.focus_distance * math.tan(turns_to_radians(camera_settings.vfov * 0.5))
+	view_plane_half_size.x = view_plane_half_size.y * camera_settings.aspect_ratio
+
+	// view-space
+	pixel_deltas_vs := view_plane_half_size * 2 / camera_settings.image_size * {1.0, -1.0} // vertical flip
+
+	// world-space
+	camera_render_data.pixel_delta_u = camera_settings.right * pixel_deltas_vs.x
+	camera_render_data.pixel_delta_v = camera_settings.up    * pixel_deltas_vs.y
+
+	// view-space
+	view_plane_top_left_pixel_center_vs := view_plane_half_size * {-1.0, 1.0} + pixel_deltas_vs * 0.5
+
+	// world-space
+	camera_render_data.view_plane_top_left_pixel_center =
+		camera_settings.position +
+		camera_settings.forward  * camera_settings.focus_distance +
+		camera_settings.right    * view_plane_top_left_pixel_center_vs.x +
+		camera_settings.up       * view_plane_top_left_pixel_center_vs.y
+
+	dof_radius := camera_settings.focus_distance * math.tan(turns_to_radians(camera_settings.depth_of_field_angle*0.5))
+	camera_render_data.dof_disk_u = camera_settings.right * dof_radius
+	camera_render_data.dof_disk_v = camera_settings.up    * dof_radius
+
+	camera_render_data.depth_of_field_angle = camera_settings.depth_of_field_angle
+	camera_render_data.samples_per_pixel = camera_settings.samples_per_pixel
+	camera_render_data.max_ray_bounces = camera_settings.max_ray_bounces
+	return
 }
 
 sphere :: struct {
@@ -460,60 +507,32 @@ rect :: struct {
 	one_past_max_y: i64,
 }
 
-render_region :: proc(image: image, region: rect, camera: camera, world: ^world, $print_progress : bool) {
-	// ![](https://raytracing.github.io/images/fig-1.18-cam-view-geom.jpg|width=200)
-	// ![](https://learn.microsoft.com/en-us/windows/uwp/graphics-concepts/images/fovdiag.png|width=200)
-	// we position the view plane on the focus plane
-	view_plane_half_size: v2
-	view_plane_half_size.y = camera.focus_distance * math.tan(turns_to_radians(camera.vfov * 0.5))
-	view_plane_half_size.x = view_plane_half_size.y * camera.aspect_ratio
-
-	// view-space
-	pixel_deltas_vs := view_plane_half_size * 2 / camera.image_size * {1.0, -1.0} // vertical flip
-
-	// world-space
-	pixel_delta_u := camera.right * pixel_deltas_vs.x
-	pixel_delta_v := camera.up    * pixel_deltas_vs.y
-
-	// view-space
-	view_plane_top_left_pixel_center_vs := view_plane_half_size * {-1.0, 1.0} + pixel_deltas_vs * 0.5
-
-	// world-space
-	view_plane_top_left_pixel_center :=
-		camera.position +
-		camera.forward  * camera.focus_distance +
-		camera.right    * view_plane_top_left_pixel_center_vs.x +
-		camera.up       * view_plane_top_left_pixel_center_vs.y
-
-	dof_radius := camera.focus_distance * math.tan(turns_to_radians(camera.depth_of_field_angle*0.5))
-	dof_disk_u := camera.right * dof_radius
-	dof_disk_v := camera.up    * dof_radius
-
+render_region :: proc(image: image, region: rect, camera_render_data: camera_render_data, world: world, $print_progress: bool) {
 	// TODO(viktor): test behavior when sensor size != render target resolution
-	pixel_sample_contribution_factor := 1.0 / cast(f64)camera.samples_per_pixel
+	pixel_sample_contribution_factor := 1.0 / cast(f64)camera_render_data.samples_per_pixel
 	for v in region.min_y..<region.one_past_max_y {
 		when print_progress do fmt.eprintf("\rScanlines remaining: %v ", region.one_past_max_y - v)
 		for u in region.min_x..<region.one_past_max_x {
 			pixel_color: v3
-			for _ in 0..<camera.samples_per_pixel {
+			for _ in 0..<camera_render_data.samples_per_pixel {
 				// if we include max we may sample the max borders twice with adjacent pixels
 				offset := random_v2_range(-0.5, 0.5/* +math.F64_EPSILON */)
 				pixel_sample_position :=
-					view_plane_top_left_pixel_center +
-					(cast(f64)u + offset.x) * pixel_delta_u +
-					(cast(f64)v + offset.y) * pixel_delta_v
+					camera_render_data.view_plane_top_left_pixel_center +
+					(cast(f64)u + offset.x) * camera_render_data.pixel_delta_u +
+					(cast(f64)v + offset.y) * camera_render_data.pixel_delta_v
 
-				ray_origin := camera.position
-				if camera.depth_of_field_angle > 0.0 {
+				ray_origin := camera_render_data.position
+				if camera_render_data.depth_of_field_angle > 0.0 {
 					dof_sample := random_point_on_disk()
 					ray_origin +=
-						(dof_sample.x * dof_disk_u) +
-						(dof_sample.y * dof_disk_v)
+						(dof_sample.x * camera_render_data.dof_disk_u) +
+						(dof_sample.y * camera_render_data.dof_disk_v)
 				}
 				ray_direction := pixel_sample_position - ray_origin
 				ray := ray{ray_origin, ray_direction}
 				sample_color := v3{1, 1, 1}
-				ray_cast: for _ in 0..=camera.max_ray_bounces {
+				ray_cast: for _ in 0..=camera_render_data.max_ray_bounces {
 					spheres := world.spheres
 					closest_t := math.F64_MAX
 					hit_sphere_index := -1
@@ -571,7 +590,7 @@ render_region :: proc(image: image, region: rect, camera: camera, world: ^world,
 	when print_progress do fmt.eprintln("\rDone.                   ")
 }
 
-build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, world: world) {
+build_dev_scene :: proc(allocator := context.allocator) -> (camera_settings: camera_settings, world: world) {
 	materials := make(type_of(world.materials), allocator)
 	/* ground */     append(&materials, material{.lambertian, {albedo={0.8, 0.8, 0.0}}})
 	/* blue */       append(&materials, material{.lambertian, {albedo={0.1, 0.2, 0.5}}})
@@ -608,21 +627,22 @@ build_dev_scene :: proc(allocator := context.allocator) -> (camera: camera, worl
 	// up_ball.center *= 0.1
 	// forward_ball.center *= 0.1
 
-	camera.position = {-2, 2, 1}
-	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, -1}, axis_up={0, 1, 0})
-	camera.aspect_ratio = 16.0/9.0
-	camera.image_size.x = 400
-	camera.image_size.y = camera.image_size.x/camera.aspect_ratio
-	camera.focus_distance = 3.4
-	camera.vfov = 20.0/360.0
-	camera.depth_of_field_angle = 10.0/360.0
-	camera.samples_per_pixel = 100
-	camera.max_ray_bounces = 50
+	// camera settings
+	camera_settings.position = {-2, 2, 1}
+	camera_settings.right, camera_settings.up, camera_settings.forward = lookat(position=camera_settings.position, target={0, 0, -1}, axis_up={0, 1, 0})
+	camera_settings.aspect_ratio = 16.0/9.0
+	camera_settings.image_size.x = 200
+	camera_settings.image_size.y = camera_settings.image_size.x/camera_settings.aspect_ratio
+	camera_settings.focus_distance = 3.4
+	camera_settings.vfov = 20.0/360.0
+	camera_settings.depth_of_field_angle = 10.0/360.0
+	camera_settings.samples_per_pixel = 100
+	camera_settings.max_ray_bounces = 50
 
-	return camera, {materials, spheres}
+	return camera_settings, {materials, spheres}
 }
 
-build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, world: world) {
+build_final_scene :: proc(allocator := context.allocator) -> (camera_settings: camera_settings, world: world) {
 	materials := make(type_of(world.materials), allocator)
 	append(&materials, material{.lambertian, {albedo={0.5, 0.5, 0.5}}})
 	append(&materials, material{.dielectric, {param1=1.5}})
@@ -660,18 +680,18 @@ build_final_scene :: proc(allocator := context.allocator) -> (camera: camera, wo
 		}
 	}
 
-	camera.position = {13, 2, 3}
-	camera.right, camera.up, camera.forward = lookat(position=camera.position, target={0, 0, 0}, axis_up={0, 1, 0})
-	camera.aspect_ratio = 16.0/9.0
-	camera.image_size.x = 1200
-	camera.image_size.y = camera.image_size.x/camera.aspect_ratio
-	camera.focus_distance = 10
-	camera.vfov = 20.0/360.0
-	camera.depth_of_field_angle = 0.6/360.0
-	camera.samples_per_pixel = 500
-	camera.max_ray_bounces = 50
+	camera_settings.position = {13, 2, 3}
+	camera_settings.right, camera_settings.up, camera_settings.forward = lookat(position=camera_settings.position, target={0, 0, 0}, axis_up={0, 1, 0})
+	camera_settings.aspect_ratio = 16.0/9.0
+	camera_settings.image_size.x = 1200
+	camera_settings.image_size.y = camera_settings.image_size.x/camera_settings.aspect_ratio
+	camera_settings.focus_distance = 10
+	camera_settings.vfov = 20.0/360.0
+	camera_settings.depth_of_field_angle = 0.6/360.0
+	camera_settings.samples_per_pixel = 500
+	camera_settings.max_ray_bounces = 50
 
-	return camera, {materials, spheres}
+	return camera_settings, {materials, spheres}
 }
 
 serialize_ppm :: proc(str: ^strings.Builder, image: image) -> string {
@@ -714,8 +734,8 @@ task_data :: struct {
 	// ray_per_pixel: i64, // read-only in threads // TODO: same as camera.samples_per_pixel
 	// max_bounce_count: i64, // read-only in threads // TODO: same as camera.max_ray_bounce_count
 
-	camera: camera,
-	world: ^world,
+	camera_render_data: camera_render_data,
+	world: world,
 	image: image,
 	region: rect,
 	seed: i64,
@@ -729,7 +749,7 @@ worker_thread :: proc(task: thread.Task) {
 	// 	fmt.eprintfln("task %v: region: %v, seed: %v", task.user_index, data.region, data.seed,)
 	// }
 
-	render_region(data.image, data.region, data.camera, data.world, false)
+	render_region(data.image, data.region, data.camera_render_data, data.world, false)
 }
 
 @(require_results)
@@ -755,9 +775,9 @@ get_cache_line_size :: proc() -> u16 {
 	return lineSize
 }
 
-render_tiled :: proc(image: image, camera: camera, world: ^world, $print_progress : bool) {
-	fmt.eprintfln("rendering multithreaded")
-	fmt.eprintfln("image: %v, %v", image.width, image.height)
+render_tiled :: proc(image: image, camera_render_data: camera_render_data, world: world, $print_progress : bool) {
+	when print_progress do fmt.eprintfln("rendering multithreaded")
+	when print_progress do fmt.eprintfln("image: %v, %v", image.width, image.height)
 	thread_count := os.processor_core_count()
 	// fmt.eprintfln("cache line size: %v", get_cache_line_size()) // 64
 	tile_width := image.width / cast(i64)thread_count
@@ -793,7 +813,7 @@ render_tiled :: proc(image: image, camera: camera, world: ^world, $print_progres
 			index := tile_x + tile_count_x * tile_y
 			fmt.assertf(index < total_tile_count, "%v => %v!/n", index, total_tile_count)
 
-			task_data_slots[index].camera = camera
+			task_data_slots[index].camera_render_data = camera_render_data
 			task_data_slots[index].world = world
 			task_data_slots[index].image = image
 			task_data_slots[index].region = {min_x, min_y, one_past_max_x, one_past_max_y}
@@ -810,19 +830,21 @@ render_tiled :: proc(image: image, camera: camera, world: ^world, $print_progres
 main :: proc () {
 	rand.reset(1)
 
-	camera, world := build_dev_scene(context.allocator)
+	camera_settings, world := build_dev_scene(context.allocator)
 	defer world_destroy(&world)
 
 	image: image
-	image.width = cast(i64)camera.image_size.x
-	image.height = cast(i64)camera.image_size.y
+	image.width = cast(i64)camera_settings.image_size.x
+	image.height = cast(i64)camera_settings.image_size.y
 	image.data   = make([]v3, image.width * image.height, context.allocator)
 	defer delete(image.data, context.allocator)
 
+	camera_render_data := calculate_camera_render_data(camera_settings)
+
 	if !RENDER_MULTITHREADED { // run-time check due to lack of conditional imports
-		render_region(image, {0, 0, image.width, image.height}, camera, &world, true)
+		render_region(image, {0, 0, image.width, image.height}, camera_render_data, world, true)
 	} else {
-		render_tiled(image, camera, &world, true)
+		render_tiled(image, camera_render_data, world, true)
 	}
 
 	str: strings.Builder
